@@ -19,16 +19,16 @@ import tempfile
 from credentials import runtime_dir
 from provider_proxy import BoundedCredentialProxy, discover_models, load_capabilities, save_capabilities, select_models
 
-VERSION = "0.5.2"
+VERSION = "0.7.0"
 TRAITS = ("bounded", "verifiable", "independent", "dependency_stable", "repetitive", "context_heavy")
 BLOCKERS = ("secrets", "deployment", "destructive", "external_side_effects", "policy_decision", "unverifiable")
-WEIGHTS = dict(bounded=3, verifiable=3, independent=2, dependency_stable=2, repetitive=1, context_heavy=-2)
-SENSITIVE = re.compile(r"(^|/)(\.git|\.env(?:\..*)?|\.ssh|\.aws|\.azure|\.npmrc|\.pypirc|credentials(?:\..*)?|service-account(?:\..*)?|id_rsa|id_ed25519|kubeconfig|terraform\.tfstate)(/|$)|\.(pem|key|p12|pfx|kdbx)$", re.I)
+WEIGHTS = dict(bounded=3, verifiable=3, independent=2, dependency_stable=2, repetitive=1, context_heavy=1)
+SENSITIVE = re.compile(r"(^|/)(\.git|\.env(?:\..*)?|\.ssh|\.aws|\.azure|\.npmrc|\.pypirc|credentials(?:\.(?:json|ya?ml|toml|ini|conf|txt|xml|db|sqlite|enc))?|service-account(?:\.(?:json|ya?ml|toml|ini|conf|txt|xml|db|sqlite|enc))?|id_rsa|id_ed25519|kubeconfig|terraform\.tfstate)(/|$)|\.(pem|key|p12|pfx|kdbx)$", re.I)
 SECRET = re.compile(r"sk-[A-Za-z0-9_-]{12,}|-----BEGIN (?:[A-Z ]+ )?PRIVATE KEY-----")
 INFRA = re.compile(r"ModuleNotFoundError|ImportError|command not found|not recognized as|PermissionError|permission denied|No such file or directory|ConnectionError|connection refused|ENOSPC|out of memory|Cannot find module", re.I)
 CONTRACT_FIELDS = {
     "schema_version", "id", "objective", "scope", "acceptance", "preflight_verifiers", "acceptance_verifiers",
-    "verifier_paths", "allow_pro", "allow_noop", "task_timeout_seconds", "max_provider_requests",
+    "verifier_paths", "allow_pro", "allow_noop", "model_policy", "task_timeout_seconds", "max_provider_requests",
     "max_model_output_tokens", "max_changed_files", "max_changed_bytes", "max_patch_bytes",
 }
 TASK_FIELDS = (CONTRACT_FIELDS - {"schema_version"}) | {"traits", "blockers", "depends_on"}
@@ -202,6 +202,7 @@ def validate_contract(c):
                 raise RouterError("Invalid implementation failure pattern") from exc
     require(type(c.get("allow_pro", False)) is bool, "allow_pro must be boolean")
     require(type(c.get("allow_noop", False)) is bool, "allow_noop must be boolean")
+    require(c.get("model_policy", "flash-first") in ("flash-first", "pro-only"), "model_policy must be flash-first or pro-only")
     require(type(c.get("task_timeout_seconds", 600)) is int and 1 <= c.get("task_timeout_seconds", 600) <= 3600, "Task timeout must be 1..3600 seconds")
     limits = dict(DEFAULT_LIMITS)
     limits.update({k: c[k] for k in DEFAULT_LIMITS if k in c})
@@ -217,6 +218,7 @@ def validate_contract(c):
     normalized.setdefault("preflight_verifiers", [])
     normalized.setdefault("allow_pro", False)
     normalized.setdefault("allow_noop", False)
+    normalized.setdefault("model_policy", "flash-first")
     normalized.setdefault("task_timeout_seconds", 600)
     for key, value in limits.items():
         normalized.setdefault(key, value)
@@ -420,11 +422,12 @@ def route(repo, contract, run_dir, attempt=None):
         require(all_pass(baseline), "Preflight verification failed; fix or classify the existing failure in Codex before delegation")
         models = {"flash": "deepseek-flash", "pro": "deepseek-v4-pro"} if attempt else resolve_models()
         feedback = ""
-        for number, model in enumerate((models.get("flash"), models.get("pro"))):
+        sequence = (("pro", models.get("pro")),) if c["model_policy"] == "pro-only" else (("flash", models.get("flash")), ("pro", models.get("pro")))
+        for number, (label, model) in enumerate(sequence):
             if not model:
                 result.update(status="verification_failed", reason="A supported Pro model is unavailable for the permitted escalation")
                 break
-            attempt_dir = run_dir / ("flash" if number == 0 else "pro")
+            attempt_dir = run_dir / label
             attempt_dir.mkdir()
             worker = (attempt or sdk_attempt)(repo, c, attempt_dir, model, feedback)
             record = dict(model=model, worker=worker)
@@ -449,7 +452,7 @@ def route(repo, contract, run_dir, attempt=None):
                 result.update(status="passed", changed_files=paths, changed_bytes=changed_bytes, base_commit=head.decode().strip(), patch=str(target), patch_sha256=hash_file(target))
                 break
             failed = [r for r in checks if not r["passed"]]
-            if number or not c.get("allow_pro", False) or not all(r["implementation_failure"] for r in failed):
+            if c["model_policy"] == "pro-only" or number or not c.get("allow_pro", False) or not all(r["implementation_failure"] for r in failed):
                 result.update(status="verification_failed", reason="Failed verification; escalation is disabled or not supported by implementation-failure evidence")
                 break
             feedback = "Host verification failed:\n" + "\n".join(r["output"][-8000:] for r in failed)

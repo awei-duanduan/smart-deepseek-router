@@ -19,6 +19,7 @@
       "blockers": [],
       "depends_on": [],
       "allow_pro": false,
+      "model_policy": "flash-first",
       "allow_noop": false,
       "task_timeout_seconds": 600,
       "max_provider_requests": 24,

@@ -1,6 +1,6 @@
 # Smart DeepSeek Router
 
-A Codex skill that delegates bounded repository implementation tasks to the official DeepSeek Harness while Codex keeps planning, host verification, patch review, and integration control.
+A DeepSeek-first Codex skill for bounded repository implementation. DeepSeek handles scoped coding and repository investigation while Codex keeps task contracts, architecture decisions, host verification, patch review, and integration control.
 
 The router provides strict task contracts, isolated Git worktrees for parallel tasks, dynamic Flash/Pro capability discovery, a loopback credential proxy, request and output limits, host-run acceptance checks, and reviewed binary patch export.
 
@@ -50,6 +50,16 @@ Allow one evidence-backed Pro retry only when desired:
 
 ```text
 Use $smart-deepseek-router for this task. If Flash completes but the host acceptance check shows a specific implementation failure, allow one Pro retry.
+```
+
+For an explicit Pro-only task, set the contract policy to `pro-only` so the router invokes `deepseek-v4-pro` first and only, with no Flash attempt:
+
+```text
+Use $smart-deepseek-router with DeepSeek Pro only for this bounded repository task: ...
+```
+
+```json
+"model_policy": "pro-only"
 ```
 
 The skill also supports automatic selection when Codex recognizes a suitable bounded and testable repository task.

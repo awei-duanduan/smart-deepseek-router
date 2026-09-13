@@ -75,6 +75,18 @@ class RepoTest(unittest.TestCase):
         integrate(self.repo, [r["patch"]], True)
         self.assertEqual((self.repo / "new.bin").read_bytes(), bytes(range(256)))
 
+    def test_pro_only_invokes_pro_directly_without_flash(self):
+        c = contract()
+        c["model_policy"] = "pro-only"
+        calls = []
+        def worker(repo, c, rd, model, feedback):
+            calls.append(model)
+            (repo / "a.txt").write_text("pro")
+            return {"finish_reason": "completed"}
+        r = self.route(c, worker)
+        self.assertEqual(r["status"], "passed", r)
+        self.assertEqual(calls, ["deepseek-v4-pro"])
+
     def test_out_of_scope_stops_without_escalation(self):
         calls = []
         def worker(repo, c, rd, model, feedback):
@@ -247,13 +259,36 @@ class RepoTest(unittest.TestCase):
 
 
 class PureTests(unittest.TestCase):
+    def test_bounded_verifiable_context_heavy_routes_to_deepseek(self):
+        t = task(contract())
+        t["traits"].update(bounded=True, verifiable=True, independent=False, dependency_stable=False, repetitive=False, context_heavy=True)
+        plan = lib.compile_plan(dict(schema_version=2, tasks=[t]))
+        self.assertEqual(plan["decisions"][0]["route"], "deepseek")
+        self.assertEqual(plan["decisions"][0]["score"], 7)
+
     def test_blockers_keep_task_in_codex(self):
         t = task(contract()); t["blockers"] = ["deployment"]
         p = lib.compile_plan(dict(schema_version=2, tasks=[t]))
         self.assertEqual(p["contracts"], [])
 
+    def test_model_policy_defaults_to_flash_first(self):
+        self.assertEqual(lib.validate_contract(contract())["model_policy"], "flash-first")
+
+    def test_invalid_model_policy_values_are_rejected(self):
+        for policy in ("", "pro", "Flash-First", "pro_only", "pro-only ", True, False, None, 0, ["pro-only"]):
+            with self.subTest(policy=policy), self.assertRaises(lib.RouterError):
+                c = contract()
+                c["model_policy"] = policy
+                lib.validate_contract(c)
+
     def test_path_traversal_drive_glob_and_secret_rejected(self):
         for scope in ("../x", "C:/x", "/x", "src/*.py", ".env", "src/../../x", "src\\x"):
+            with self.subTest(scope=scope), self.assertRaises(lib.RouterError):
+                lib.validate_contract(contract(scope=[scope]))
+
+    def test_credential_source_module_is_allowed_but_data_is_rejected(self):
+        self.assertEqual(lib.relative("scripts/credentials.py"), "scripts/credentials.py")
+        for scope in ("credentials.json", "config/service-account.yaml", "private.pem"):
             with self.subTest(scope=scope), self.assertRaises(lib.RouterError):
                 lib.validate_contract(contract(scope=[scope]))
 

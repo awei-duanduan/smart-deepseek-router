@@ -1,6 +1,6 @@
 # Host-backed escalation
 
-Flash always runs first. Pro runs at most once, on the current candidate state, only when all conditions hold:
+`model_policy` selects the model sequence. The default is `"flash-first"`: Flash always runs first, and Pro runs at most once, on the current candidate state, only when all conditions hold:
 
 - The contract explicitly sets `allow_pro: true`.
 - Optional preflight checks passed without changing the repository.
@@ -9,7 +9,9 @@ Flash always runs first. Pro runs at most once, on the current candidate state, 
 - Post-worker acceptance verification failed; every failed check is a normally exited process with a positive exit code and the verifier's explicit `implementation_failure_pattern` matches.
 - No captured failed-check output matches the router's common infrastructure-error indicators.
 
-Pro receives the original contract and redacted host failure output, not a claim that Flash succeeded. The same host checks then run again. Another failure ends the route; there is no retry loop, alternate model search, or automatic dependency installation.
+With `"model_policy": "pro-only"`, the router invokes `deepseek-v4-pro` directly and only. No Flash attempt occurs, `allow_pro` is ignored, and a failed Pro verification ends the route without escalation to another model. Use this explicit policy only when the contract opts out of Flash-first routing.
+
+Under the default flash-first policy, Pro receives the original contract and redacted host failure output, not a claim that Flash succeeded. The same host checks then run again. Another failure ends the route; there is no retry loop, alternate model search, or automatic dependency installation.
 
 No escalation for SDK import/startup/protocol errors, missing key/runtime, unavailable Pro capability, worker `error`/`max-tokens`/unknown finish status, timeout, preflight failure, an empty candidate, scope/size violations, Git mutations, changed verifiers, or recognized infrastructure/permission errors. All failures preserve available changes for Codex inspection.
 

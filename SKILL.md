@@ -1,15 +1,15 @@
 ---
 name: smart-deepseek-router
-description: Route bounded, testable repository implementation tasks to DeepSeek Harness while Codex retains planning and review. Supports scored task contracts, isolated parallel Git worktrees, host verification, limited Flash-to-Pro escalation, and reviewed patch integration. Use for scoped coding, refactoring, tests, and repetitive migrations; keep architecture, secrets, deployments, and external mutations in Codex.
+description: Use a DeepSeek-first workflow for bounded, testable repository implementation while Codex retains contracts, architecture decisions, host verification, and review. Supports scoped coding, refactoring, tests, context-heavy repository work, repetitive migrations, isolated Git worktrees, limited Flash-to-Pro escalation, and reviewed patch integration. Keep secrets, deployments, destructive actions, and external mutations in Codex.
 ---
 
-# Smart DeepSeek Router v0.5.2
+# Smart DeepSeek Router v0.7.0
 
-Codex decides scope and acceptance, DeepSeek implements, and Codex reviews host-verified patches. This is a local implementation of the supplied design with a transparent routing heuristic; it does not claim to recover missing original scripts or scoring formulas. See [upstream sources and compatibility](references/sources.md).
+Use a DeepSeek-first split: Codex defines scope and acceptance, DeepSeek performs bounded repository implementation and inspection, and Codex reviews host-verified patches. The transparent routing heuristic favors context-heavy implementation when the task remains bounded and verifiable. See [upstream sources and compatibility](references/sources.md).
 
 ## Before routing
 
-- Read applicable repository instructions, inspect Git status, and resolve architecture, product behavior, security, and data-integrity decisions in Codex. Do not delegate merely because the skill is installed. Tiny changes usually stay in Codex.
+- Read applicable repository instructions, inspect Git status, and resolve architecture, product behavior, security, and data-integrity decisions in Codex. Once scope and acceptance are concrete, prefer DeepSeek for the implementation, including small, repetitive, or context-heavy repository work. Keep the work in Codex when delegation overhead exceeds the likely implementation effort or the result cannot be independently verified.
 - Use this workflow only for authorized repository tasks with concrete, executable acceptance checks. Keep secrets, deployments, destructive actions, external mutations, and policy decisions out of delegated contracts.
 - Run `python <skill-dir>/scripts/run.py doctor --online` before the first live route or after provider changes. Planning, patch checks, and offline tests need only Python 3.10+ and Git. Live execution also needs the compatible official SDK/runtime, a working platform shell, a configured DeepSeek key, and a recent model capability cache. If the dedicated runtime is missing, read [runtime setup](references/runtime.md) and run the explicit installer only with the user's authorization. On Windows, `configure.py` can store the key for the current user with DPAPI; other platforms use their secure environment configuration. Never ask for a key in chat or call a paid model only to test installation.
 - Workers use the official `sdk-minimal` profile with a fresh Harness home per attempt. **This profile has full local process access. A Git worktree is not a security sandbox.** Only use trusted, non-sensitive repositories in an appropriately isolated execution environment. Scope checks are post-run checks, not access control. The worker receives a per-attempt loopback token; a host proxy holds the real provider key, forces the assigned model, and caps requests and output tokens. This protects the provider credential from ordinary worker environment inspection, but does not restrict access to other OS-visible files. If the environment is unsuitable, continue directly in Codex.
@@ -24,6 +24,8 @@ python <skill-dir>/scripts/run.py plan --plan <candidate-plan.json> --out-dir <n
 ```
 
 Read `routing.json`, including tasks kept in Codex and scope conflicts. Contracts are written to `contracts/<id>.json`. The included [example plan](references/example-plan.json) is a schema example; adapt its paths and tests before executing.
+
+Let DeepSeek read the repository context needed to implement the contract. Codex should avoid duplicating that investigation before dispatch unless it is needed to define architecture, scope, or acceptance. Afterward, review the actual diff and host evidence rather than recreating the worker's full reasoning.
 
 ## Execute
 
@@ -43,7 +45,7 @@ python <skill-dir>/scripts/run.py route --workdir <clean-authorized-worktree> --
 
 `route.py` directly changes that worktree and preserves failed attempts for review. It does not silently roll them back. Every run directory must be new and outside the target repository. Do not run multiple router instances against the same repository; CLI entry points take a repository lock.
 
-The host runs optional preflight checks, discovers currently available model ids, and then tries the advertised Flash model. Acceptance checks run only after the worker, so they may assert behavior that does not exist on the baseline. A normally completed, in-scope attempt with explicitly classified acceptance failures can use one available Pro retry only when `allow_pro: true`. Empty changes fail by default. Read [escalation rules](references/escalation.md). Worker text is never completion evidence. Missing SDKs, credentials, incomplete turns, timeouts, permission errors, and dependency failures do not trigger escalation.
+Contracts default to `model_policy: "flash-first"`: the host runs optional preflight checks, discovers currently available model ids, and tries the advertised Flash model. When the user explicitly asks for DeepSeek Pro, Pro-only, or to skip Flash, set `model_policy: "pro-only"` without asking again. The router then invokes the advertised Pro model (`deepseek-v4-pro`) directly and only, with no Flash attempt and no escalation retry. Under the default flash-first policy, acceptance checks run only after the worker, so they may assert behavior that does not exist on the baseline. A normally completed, in-scope Flash attempt with explicitly classified acceptance failures can use one available Pro retry only when `allow_pro: true`. Empty changes fail by default. Read [escalation rules](references/escalation.md). Worker text is never completion evidence. Missing SDKs, credentials, incomplete turns, timeouts, permission errors, and dependency failures do not trigger escalation.
 
 ## Review and integrate
 

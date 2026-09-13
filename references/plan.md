@@ -15,6 +15,7 @@ Plan root: `{"schema_version": 2, "tasks": [...]}` with at most 32 tasks. Unknow
 | `blockers` | List of applicable blocker names from routing.md; `[]` when none |
 | `depends_on` | Optional other task ids; any dependency prevents automatic parallel scheduling |
 | `allow_pro` | Boolean, default false; permit at most one evidence-backed Pro attempt |
+| `model_policy` | String, default `flash-first`; either `flash-first` or `pro-only`. `pro-only` invokes `deepseek-v4-pro` directly and only, with no Flash attempt or escalation |
 | `allow_noop` | Boolean, default false; accept a verified empty patch only for an explicitly observational task |
 | `task_timeout_seconds` | Integer 1–3600, default 600, per attempt; launcher adds 40 seconds for boot/shutdown |
 | `max_provider_requests` | Integer 1–100, default 24, enforced by the credential proxy per attempt |
