@@ -19,7 +19,7 @@ import tempfile
 from credentials import runtime_dir
 from provider_proxy import BoundedCredentialProxy, discover_models, load_capabilities, save_capabilities, select_models
 
-VERSION = "0.7.1"
+VERSION = "0.8.0"
 TRAITS = ("bounded", "verifiable", "independent", "dependency_stable", "repetitive", "context_heavy")
 BLOCKERS = ("secrets", "deployment", "destructive", "external_side_effects", "policy_decision", "unverifiable")
 WEIGHTS = dict(bounded=3, verifiable=3, independent=2, dependency_stable=2, repetitive=1, context_heavy=1)
@@ -29,7 +29,7 @@ INFRA = re.compile(r"ModuleNotFoundError|ImportError|command not found|not recog
 CONTRACT_FIELDS = {
     "schema_version", "id", "objective", "scope", "acceptance", "preflight_verifiers", "acceptance_verifiers",
     "verifier_paths", "allow_pro", "allow_noop", "model_policy", "task_timeout_seconds", "max_provider_requests",
-    "max_model_output_tokens", "max_changed_files", "max_changed_bytes", "max_patch_bytes",
+    "max_model_output_tokens", "max_changed_files", "max_changed_bytes", "max_patch_bytes", "routing_score",
 }
 TASK_FIELDS = (CONTRACT_FIELDS - {"schema_version"}) | {"traits", "blockers", "depends_on"}
 VERIFIER_FIELDS = {"argv", "cwd", "timeout_seconds", "implementation_failure_pattern"}
@@ -202,7 +202,8 @@ def validate_contract(c):
                 raise RouterError("Invalid implementation failure pattern") from exc
     require(type(c.get("allow_pro", False)) is bool, "allow_pro must be boolean")
     require(type(c.get("allow_noop", False)) is bool, "allow_noop must be boolean")
-    require(c.get("model_policy", "flash-first") in ("flash-first", "pro-only"), "model_policy must be flash-first or pro-only")
+    require(c.get("model_policy", "auto") in ("auto", "flash-first", "pro-only"), "model_policy must be auto, flash-first or pro-only")
+    require(type(c.get("routing_score", 0)) is int and 0 <= c.get("routing_score", 0) <= 12, "routing_score must be 0..12")
     require(type(c.get("task_timeout_seconds", 600)) is int and 1 <= c.get("task_timeout_seconds", 600) <= 3600, "Task timeout must be 1..3600 seconds")
     limits = dict(DEFAULT_LIMITS)
     limits.update({k: c[k] for k in DEFAULT_LIMITS if k in c})
@@ -218,7 +219,8 @@ def validate_contract(c):
     normalized.setdefault("preflight_verifiers", [])
     normalized.setdefault("allow_pro", False)
     normalized.setdefault("allow_noop", False)
-    normalized.setdefault("model_policy", "flash-first")
+    normalized.setdefault("model_policy", "auto")
+    normalized.setdefault("routing_score", 0)
     normalized.setdefault("task_timeout_seconds", 600)
     for key, value in limits.items():
         normalized.setdefault(key, value)
@@ -246,6 +248,8 @@ def compile_plan(plan):
         deps = task.get("depends_on", [])
         require(isinstance(deps, list) and all(isinstance(x, str) for x in deps), "depends_on must be an id list")
         score = sum(WEIGHTS[k] for k, value in traits.items() if value)
+        c.setdefault("routing_score", score)
+        c.setdefault("model_policy", "auto")
         delegate = not blockers and traits["bounded"] and traits["verifiable"] and score >= 6
         decisions.append(dict(id=c["id"], score=score, route="deepseek" if delegate else "codex", blockers=blockers, depends_on=deps, parallel_eligible=delegate and traits["independent"] and traits["dependency_stable"] and not deps))
         if delegate:
@@ -422,7 +426,11 @@ def route(repo, contract, run_dir, attempt=None):
         require(all_pass(baseline), "Preflight verification failed; fix or classify the existing failure in Codex before delegation")
         models = {"flash": "deepseek-flash", "pro": "deepseek-v4-pro"} if attempt else resolve_models()
         feedback = ""
-        sequence = (("pro", models.get("pro")),) if c["model_policy"] == "pro-only" else (("flash", models.get("flash")), ("pro", models.get("pro")))
+        policy = c["model_policy"]
+        if policy == "auto":
+            # Codex supplies the bounded task score; harder/context-heavy work goes straight to Pro.
+            policy = "pro-only" if c.get("routing_score", 0) >= 9 else "flash-first"
+        sequence = (("pro", models.get("pro")),) if policy == "pro-only" else (("flash", models.get("flash")), ("pro", models.get("pro")))
         for number, (label, model) in enumerate(sequence):
             if not model:
                 result.update(status="verification_failed", reason="A supported Pro model is unavailable for the permitted escalation")

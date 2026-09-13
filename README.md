@@ -13,13 +13,13 @@ The router provides strict task contracts, isolated Git worktrees for parallel t
 - Plans bounded, verifiable repository slices and emits normalized contracts under `contracts/<id>.json`.
 - Routes one task directly into an authorized clean worktree, or dispatches multiple independent tasks into detached Git worktrees.
 - Runs optional preflight checks, invokes DeepSeek through a local credential proxy, and runs host acceptance verifiers after the worker.
-- Defaults to `model_policy: "flash-first"` and supports `model_policy: "pro-only"` to invoke `deepseek-v4-pro` directly and only.
+- Defaults to `model_policy: "auto"`: Codex sends easy work to Flash and harder/context-heavy work (routing score ≥ 9) directly to `deepseek-v4-pro`; explicit `flash-first` and `pro-only` overrides remain available.
 - Exports reviewed binary patches with route metadata, then `integrate` applies them only after explicit Codex review.
 
 - 将有界、可验证的仓库切片规划为规范化合同，写入 `contracts/<id>.json`。
 - 将一个任务直接路由到已授权的干净 worktree，或将多个独立任务分派到分离的 Git worktree。
 - 运行可选的预检，通过本地凭据代理调用 DeepSeek，并在 worker 运行后执行宿主验收检查。
-- 默认使用 `model_policy: "flash-first"`，并支持 `model_policy: "pro-only"` 以直接且仅调用 `deepseek-v4-pro`。
+- 默认使用 `model_policy: "auto"`：Codex 将简单任务交给 Flash，将较难或上下文较重的任务（路由分数 ≥ 9）直接交给 `deepseek-v4-pro`；仍可显式覆盖为 `flash-first` 或 `pro-only`。
 - 导出经审查的二进制补丁及路由元数据，然后在 Codex 明确审查后由 `integrate` 应用。
 
 ## Requirements / 前置条件

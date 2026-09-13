@@ -3,7 +3,7 @@ name: smart-deepseek-router
 description: Use a DeepSeek-first workflow for bounded, testable repository implementation while Codex retains contracts, architecture decisions, host verification, and review. Supports scoped coding, refactoring, tests, context-heavy repository work, repetitive migrations, isolated Git worktrees, limited Flash-to-Pro escalation, and reviewed patch integration. Keep secrets, deployments, destructive actions, and external mutations in Codex.
 ---
 
-# Smart DeepSeek Router v0.7.1
+# Smart DeepSeek Router v0.8.0
 
 Use a DeepSeek-first split: Codex defines scope and acceptance, DeepSeek performs bounded repository implementation and inspection, and Codex reviews host-verified patches. The transparent routing heuristic favors context-heavy implementation when the task remains bounded and verifiable. See [upstream sources and compatibility](references/sources.md).
 
@@ -45,7 +45,7 @@ python <skill-dir>/scripts/run.py route --workdir <clean-authorized-worktree> --
 
 `route.py` directly changes that worktree and preserves failed attempts for review. It does not silently roll them back. Every run directory must be new and outside the target repository. Do not run multiple router instances against the same repository; CLI entry points take a repository lock.
 
-Contracts default to `model_policy: "flash-first"`: the host runs optional preflight checks, discovers currently available model ids, and tries the advertised Flash model. When the user explicitly asks for DeepSeek Pro, Pro-only, or to skip Flash, set `model_policy: "pro-only"` without asking again. The router then invokes the advertised Pro model (`deepseek-v4-pro`) directly and only, with no Flash attempt and no escalation retry. Under the default flash-first policy, acceptance checks run only after the worker, so they may assert behavior that does not exist on the baseline. A normally completed, in-scope Flash attempt with explicitly classified acceptance failures can use one available Pro retry only when `allow_pro: true`. Empty changes fail by default. Read [escalation rules](references/escalation.md). Worker text is never completion evidence. Missing SDKs, credentials, incomplete turns, timeouts, permission errors, and dependency failures do not trigger escalation.
+Contracts default to `model_policy: "auto"`: Codex scores task difficulty from the six routing traits, sends straightforward bounded work (score below 9) to Flash, and sends harder or context-heavy work (score 9 or higher) directly to `deepseek-v4-pro`. Set `model_policy: "flash-first"` or `"pro-only"` to override that decision explicitly. Auto/Flash routes may use one evidence-backed Pro retry only when `allow_pro: true`; explicit Pro-only never retries. Empty changes fail by default. Read [escalation rules](references/escalation.md). Worker text is never completion evidence. Missing SDKs, credentials, incomplete turns, timeouts, permission errors, and dependency failures do not trigger escalation.
 
 ## Review and integrate
 

@@ -1,6 +1,6 @@
 # Host-backed escalation
 
-`model_policy` selects the model sequence. The default is `"flash-first"`: Flash always runs first, and Pro runs at most once, on the current candidate state, only when all conditions hold:
+`model_policy` selects the model sequence. The default is `"auto"`: Codex computes the task score from the six routing traits. Scores below 9 use Flash first; scores 9 or higher invoke Pro directly. Explicit `"flash-first"` retains the old sequence, with Pro running at most once only when all conditions hold:
 
 - The contract explicitly sets `allow_pro: true`.
 - Optional preflight checks passed without changing the repository.

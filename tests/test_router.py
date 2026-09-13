@@ -271,8 +271,8 @@ class PureTests(unittest.TestCase):
         p = lib.compile_plan(dict(schema_version=2, tasks=[t]))
         self.assertEqual(p["contracts"], [])
 
-    def test_model_policy_defaults_to_flash_first(self):
-        self.assertEqual(lib.validate_contract(contract())["model_policy"], "flash-first")
+    def test_model_policy_defaults_to_auto(self):
+        self.assertEqual(lib.validate_contract(contract())["model_policy"], "auto")
 
     def test_invalid_model_policy_values_are_rejected(self):
         for policy in ("", "pro", "Flash-First", "pro_only", "pro-only ", True, False, None, 0, ["pro-only"]):
