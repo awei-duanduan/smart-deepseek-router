@@ -3,9 +3,15 @@ name: smart-deepseek-router
 description: Use a DeepSeek-first workflow for bounded, testable repository implementation while Codex retains contracts, architecture decisions, host verification, and review. Supports scoped coding, refactoring, tests, context-heavy repository work, repetitive migrations, isolated Git worktrees, limited Flash-to-Pro escalation, and reviewed patch integration. Keep secrets, deployments, destructive actions, and external mutations in Codex.
 ---
 
-# Smart DeepSeek Router v0.8.1
+# Smart DeepSeek Router v0.9.0
 
 Use a DeepSeek-first split: Codex defines scope and acceptance, DeepSeek performs bounded repository implementation and inspection, and Codex reviews host-verified patches. The transparent routing heuristic favors context-heavy implementation when the task remains bounded and verifiable. See [upstream sources and compatibility](references/sources.md).
+
+## Hybrid model routing
+
+Use the conversation's Codex model as a second routing layer. Codex owns architecture, security, irreversible decisions, and final review; choose a lower-cost Codex model for routine coordination, a mid-tier model for ordinary planning and review, and the highest-capability model only for ambiguous architecture, high-risk changes, or difficult failures. DeepSeek handles bounded implementation: automatic scoring sends simpler work to Flash and harder work to `deepseek-v4-pro`. These layers can run in the same conversation: a Codex model decides the contract, DeepSeek executes the bounded slice, and a Codex model reviews the evidence.
+
+Do not spend the highest-capability model on repetitive edits or provider setup. Escalate only when the task score, uncertainty, risk, or failed verification justifies it. Keep secrets, deployments, destructive actions, and external side effects in Codex regardless of model tier.
 
 ## Before routing
 

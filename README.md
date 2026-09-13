@@ -14,12 +14,14 @@ The router provides strict task contracts, isolated Git worktrees for parallel t
 - Routes one task directly into an authorized clean worktree, or dispatches multiple independent tasks into detached Git worktrees.
 - Runs optional preflight checks, invokes DeepSeek through a local credential proxy, and runs host acceptance verifiers after the worker.
 - Defaults to automatic model selection. Users can omit `model_policy`; Codex sends easy work to Flash and harder/context-heavy work (routing score ≥ 9) directly to `deepseek-v4-pro`. Older `flash-first` and `pro-only` values remain supported for compatibility.
+- Supports hybrid routing: Codex can use a lower-cost model for routine coordination, a stronger model for normal planning/review, and its highest-capability model only for the hardest architecture, risk, or recovery decisions while DeepSeek handles bounded implementation in the same conversation.
 - Exports reviewed binary patches with route metadata, then `integrate` applies them only after explicit Codex review.
 
 - 将有界、可验证的仓库切片规划为规范化合同，写入 `contracts/<id>.json`。
 - 将一个任务直接路由到已授权的干净 worktree，或将多个独立任务分派到分离的 Git worktree。
 - 运行可选的预检，通过本地凭据代理调用 DeepSeek，并在 worker 运行后执行宿主验收检查。
 - 默认自动选择模型，用户可以省略 `model_policy`：Codex 将简单任务交给 Flash，将较难或上下文较重的任务（路由分数 ≥ 9）直接交给 `deepseek-v4-pro`。旧的 `flash-first` 和 `pro-only` 值仍为兼容性保留。
+- 支持混合路由：Codex 可用较低成本模型处理日常协调，用更强模型处理普通规划和审查，仅在最高难度架构、风险或恢复决策中使用最高级模型，同时在同一对话里让 DeepSeek 执行边界清晰的实现任务。
 - 导出经审查的二进制补丁及路由元数据，然后在 Codex 明确审查后由 `integrate` 应用。
 
 ## Requirements / 前置条件

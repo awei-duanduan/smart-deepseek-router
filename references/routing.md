@@ -16,3 +16,14 @@ Delegate when `bounded` and `verifiable` are true, score >= 6, and blockers are 
 Allowed hard blockers: `secrets`, `deployment`, `destructive`, `external_side_effects`, `policy_decision`, `unverifiable`. These always keep a candidate in Codex, regardless of score. A syntactically valid contract is not proof that a task is safe; the planner must accurately classify its contents.
 
 Automatic dispatch additionally requires `independent`, `dependency_stable`, no `depends_on`, and non-overlapping write scopes. Different filenames alone do not imply independence: shared APIs, schemas, configuration, dependency locks, and generated resources can create semantic conflicts. Keep such work sequential or in Codex.
+# Hybrid model tiers
+
+Codex should select the least expensive model that can safely complete its responsibility:
+
+| Difficulty | Codex responsibility | DeepSeek route |
+|---|---|---|
+| Low | Routine coordination and final summary | Flash |
+| Medium | Planning, contract design, and ordinary review | Flash, with evidence-backed Pro retry when allowed |
+| High | Ambiguous architecture, security-sensitive reasoning, or difficult recovery | `deepseek-v4-pro` plus the highest-capability Codex model for decisions/review |
+
+The tiers are guidance, not a second provider credential path. The host Codex model remains responsible for contracts, risk decisions, and integration; the DeepSeek worker never performs those responsibilities.
