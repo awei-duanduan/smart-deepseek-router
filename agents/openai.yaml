@@ -1,0 +1,4 @@
+interface:
+  display_name: "Smart DeepSeek Router"
+  short_description: "Route bounded coding tasks through DeepSeek"
+  default_prompt: "Use $smart-deepseek-router to implement and verify this bounded repository change."

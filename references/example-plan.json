@@ -1,0 +1,31 @@
+{
+  "schema_version": 2,
+  "tasks": [
+    {
+      "id": "normalize-title",
+      "objective": "Normalize repeated whitespace in src/title.py while preserving existing behavior for empty input.",
+      "scope": ["src/title.py"],
+      "acceptance": ["Existing title tests pass", "Repeated internal whitespace becomes a single space"],
+      "preflight_verifiers": [],
+      "acceptance_verifiers": [
+        {
+          "argv": ["{python}", "-B", "-m", "unittest", "discover", "-s", "tests"],
+          "timeout_seconds": 120,
+          "implementation_failure_pattern": "AssertionError"
+        }
+      ],
+      "verifier_paths": ["tests/test_title.py"],
+      "traits": {"bounded": true, "verifiable": true, "independent": true, "dependency_stable": true, "repetitive": false, "context_heavy": false},
+      "blockers": [],
+      "depends_on": [],
+      "allow_pro": false,
+      "allow_noop": false,
+      "task_timeout_seconds": 600,
+      "max_provider_requests": 24,
+      "max_model_output_tokens": 8192,
+      "max_changed_files": 200,
+      "max_changed_bytes": 20971520,
+      "max_patch_bytes": 41943040
+    }
+  ]
+}
