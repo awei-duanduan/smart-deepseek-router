@@ -19,7 +19,7 @@ import tempfile
 from credentials import runtime_dir
 from provider_proxy import BoundedCredentialProxy, discover_models, load_capabilities, save_capabilities, select_models
 
-VERSION = "0.5.0"
+VERSION = "0.5.1"
 TRAITS = ("bounded", "verifiable", "independent", "dependency_stable", "repetitive", "context_heavy")
 BLOCKERS = ("secrets", "deployment", "destructive", "external_side_effects", "policy_decision", "unverifiable")
 WEIGHTS = dict(bounded=3, verifiable=3, independent=2, dependency_stable=2, repetitive=1, context_heavy=-2)
@@ -316,6 +316,7 @@ def audit(repo, c, before, head, index):
 
 
 def verify(repo, verifiers):
+    repo = Path(repo).resolve()
     results = []
     for v in verifiers:
         argv = [sys.executable if a == "{python}" else a for a in v["argv"]]
@@ -389,6 +390,7 @@ def export_patch(repo, head, paths, target, max_patch_bytes):
 
 def route(repo, contract, run_dir, attempt=None):
     """Caller owns the lock. attempt injection is for offline unit tests only."""
+    repo = Path(repo).resolve()
     c = validate_contract(contract)
     clean(repo, reject_ignored=True)
     run_dir = outside(repo, run_dir)
