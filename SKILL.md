@@ -3,7 +3,7 @@ name: smart-deepseek-router
 description: Route bounded, testable repository implementation tasks to DeepSeek Harness while Codex retains planning and review. Supports scored task contracts, isolated parallel Git worktrees, host verification, limited Flash-to-Pro escalation, and reviewed patch integration. Use for scoped coding, refactoring, tests, and repetitive migrations; keep architecture, secrets, deployments, and external mutations in Codex.
 ---
 
-# Smart DeepSeek Router v0.5.1
+# Smart DeepSeek Router v0.5.2
 
 Codex decides scope and acceptance, DeepSeek implements, and Codex reviews host-verified patches. This is a local implementation of the supplied design with a transparent routing heuristic; it does not claim to recover missing original scripts or scoring formulas. See [upstream sources and compatibility](references/sources.md).
 

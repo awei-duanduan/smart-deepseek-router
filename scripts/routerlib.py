@@ -19,7 +19,7 @@ import tempfile
 from credentials import runtime_dir
 from provider_proxy import BoundedCredentialProxy, discover_models, load_capabilities, save_capabilities, select_models
 
-VERSION = "0.5.1"
+VERSION = "0.5.2"
 TRAITS = ("bounded", "verifiable", "independent", "dependency_stable", "repetitive", "context_heavy")
 BLOCKERS = ("secrets", "deployment", "destructive", "external_side_effects", "policy_decision", "unverifiable")
 WEIGHTS = dict(bounded=3, verifiable=3, independent=2, dependency_stable=2, repetitive=1, context_heavy=-2)
@@ -66,6 +66,16 @@ def clean_env():
     return result
 
 
+def resolved(path):
+    """Resolve links while keeping paths acceptable to Git for Windows."""
+    value = str(Path(path).resolve())
+    if os.name == "nt" and value.startswith("\\\\?\\UNC\\"):
+        value = "\\\\" + value[8:]
+    elif os.name == "nt" and value.startswith("\\\\?\\"):
+        value = value[4:]
+    return Path(value)
+
+
 def redact(text):
     for key, value in os.environ.items():
         if len(value) >= 8 and re.search(r"KEY|TOKEN|SECRET|PASSWORD", key, re.I):
@@ -105,8 +115,8 @@ def git(repo, *args, env=None):
 
 
 def root(path):
-    path = Path(path).resolve()
-    found = Path(git(path, "rev-parse", "--show-toplevel").decode().strip()).resolve()
+    path = resolved(path)
+    found = resolved(git(path, "rev-parse", "--show-toplevel").decode().strip())
     require(found == path, "--workdir must name the Git repository root")
     git(path, "rev-parse", "--verify", "HEAD")
     return path
@@ -120,8 +130,8 @@ def clean(repo, reject_ignored=False):
 
 
 def outside(repo, path):
-    path = Path(path).resolve()
-    require(not path.is_relative_to(repo), "Run/output directory must be outside the repository")
+    path = resolved(path)
+    require(not path.is_relative_to(resolved(repo)), "Run/output directory must be outside the repository")
     return path
 
 
@@ -316,7 +326,7 @@ def audit(repo, c, before, head, index):
 
 
 def verify(repo, verifiers):
-    repo = Path(repo).resolve()
+    repo = resolved(repo)
     results = []
     for v in verifiers:
         argv = [sys.executable if a == "{python}" else a for a in v["argv"]]
@@ -390,7 +400,7 @@ def export_patch(repo, head, paths, target, max_patch_bytes):
 
 def route(repo, contract, run_dir, attempt=None):
     """Caller owns the lock. attempt injection is for offline unit tests only."""
-    repo = Path(repo).resolve()
+    repo = resolved(repo)
     c = validate_contract(contract)
     clean(repo, reject_ignored=True)
     run_dir = outside(repo, run_dir)
