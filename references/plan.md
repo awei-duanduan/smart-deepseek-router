@@ -15,7 +15,7 @@ Plan root: `{"schema_version": 2, "tasks": [...]}` with at most 32 tasks. Unknow
 | `blockers` | List of applicable blocker names from routing.md; `[]` when none |
 | `depends_on` | Optional other task ids; any dependency prevents automatic parallel scheduling |
 | `allow_pro` | Boolean, default false; permit at most one evidence-backed Pro attempt |
-| `model_policy` | String, default `auto`; `auto` uses the Codex-computed routing score (score < 9 → Flash, score ≥ 9 → Pro), or explicitly choose `flash-first` / `pro-only` |
+| `model_policy` | Optional string; omit it for Codex automatic selection (score < 9 → Flash, score ≥ 9 → Pro). Legacy `flash-first` / `pro-only` values are accepted for compatibility |
 | `allow_noop` | Boolean, default false; accept a verified empty patch only for an explicitly observational task |
 | `task_timeout_seconds` | Integer 1–3600, default 600, per attempt; launcher adds 40 seconds for boot/shutdown |
 | `max_provider_requests` | Integer 1–100, default 24, enforced by the credential proxy per attempt |
