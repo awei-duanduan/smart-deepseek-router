@@ -2,7 +2,7 @@
 
 Run `python <skill-dir>/scripts/run.py doctor --online` before the first live route and after provider/model changes. The wrapper selects the dedicated runtime and, on Windows, loads the current user's DPAPI-encrypted key into the router process. Doctor never prints the key or installs anything. Without `--online` it uses a model capability cache valid for 24 hours; with `--online` it refreshes the official model list and records the selected Flash/Pro ids. A positive report is not a billing or isolation guarantee.
 
-For live routing, the official distribution is `deepseek-harness-sdk`; its declared dependency installs a same-version `deepseek-harness-runtime-bin`. The adapter uses documented `DeepSeekHarness(...)` and `run(..., session_id=...)` with `sdk-minimal`, fresh explicit `dsh_home`, workspace/runtime cwd, model, output cap, and timeout options. The source reference is pinned in sources.md. Upstream is a developer preview, so verify compatibility when changing SDK versions.
+For live routing, DeepSeek workers use the local Claude Code CLI and DeepSeek's Anthropic-compatible endpoint (`https://api.deepseek.com/anthropic`). The parent proxy injects a per-attempt `ANTHROPIC_API_KEY`, forces the assigned model, and caps requests/output. The legacy `deepseek-harness-sdk` remains installed for compatibility diagnostics but is not the live worker path. Verify `claude --version` before a live route.
 
 If the user requests runtime setup, use the included installer. It creates a dedicated virtual environment outside the skill directory and installs the compatibility-tested SDK/runtime version:
 

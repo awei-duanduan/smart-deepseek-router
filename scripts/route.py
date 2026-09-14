@@ -11,6 +11,7 @@ def main():
     p.add_argument("--contract", required=True)
     p.add_argument("--run-dir", required=True)
     p.add_argument("--result-out")
+    p.add_argument("--model", choices=("flash", "pro"))
     a = p.parse_args()
     repo = root(a.workdir)
     if a.result_out:
@@ -18,7 +19,7 @@ def main():
         require(not Path(a.result_out).exists(), "Result output already exists")
     require(check()["ready_for_live_attempt"], "SDK/runtime or environment credential is missing; run doctor.py; no packages are installed automatically")
     with lock(repo):
-        result = route(repo, read_json(a.contract), a.run_dir)
+        result = route(repo, read_json(a.contract), a.run_dir, assigned_model=a.model)
     if a.result_out:
         write_json(a.result_out, result)
     print(json.dumps(result, ensure_ascii=False, indent=2))

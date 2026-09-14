@@ -1,24 +1,37 @@
 ---
 name: smart-deepseek-router
-description: Use a DeepSeek-first workflow for bounded, testable repository implementation while Codex retains contracts, architecture decisions, host verification, and review. Supports scoped coding, refactoring, tests, context-heavy repository work, repetitive migrations, isolated Git worktrees, limited Flash-to-Pro escalation, and reviewed patch integration. Keep secrets, deployments, destructive actions, and external mutations in Codex.
+description: Use when a repository task is bounded, testable, and may benefit from routing implementation work across Astra, Sol, Terra, Luna, DeepSeek Pro, or DeepSeek Flash while preserving Codex control over architecture, safety, verification, and integration.
 ---
 
-# Smart DeepSeek Router v0.9.0
+# Smart DeepSeek Router v0.10.0
 
-Use a DeepSeek-first split: Codex defines scope and acceptance, DeepSeek performs bounded repository implementation and inspection, and Codex reviews host-verified patches. The transparent routing heuristic favors context-heavy implementation when the task remains bounded and verifiable. See [upstream sources and compatibility](references/sources.md).
+Use an Astra-led split: Astra defines scope and acceptance, selects the least expensive capable executor, and summarizes evidence; the selected worker performs bounded repository implementation or inspection; Astra reviews host-verified results and controls integration. The transparent routing heuristic favors low-cost execution when the task remains bounded and verifiable. See [upstream sources and compatibility](references/sources.md).
 
-## Hybrid model routing
+## Astra coordination and model routing
 
-Use the conversation's Codex model as a second routing layer. Codex owns architecture, security, irreversible decisions, and final review; choose a lower-cost Codex model for routine coordination, a mid-tier model for ordinary planning and review, and the highest-capability model only for ambiguous architecture, high-risk changes, or difficult failures. DeepSeek handles bounded implementation: automatic scoring sends simpler work to Flash and harder work to `deepseek-v4-pro`. These layers can run in the same conversation: a Codex model decides the contract, DeepSeek executes the bounded slice, and a Codex model reviews the evidence.
+Treat Astra as the task coordinator and final synthesizer. Astra should emit short contracts, avoid repeating repository investigation, and spend tokens only on scope, risk, routing, review, and summary. Use the lowest capable executor and escalate only when task difficulty, uncertainty, or failed verification justifies it.
 
-Do not spend the highest-capability model on repetitive edits or provider setup. Escalate only when the task score, uncertainty, risk, or failed verification justifies it. Keep secrets, deployments, destructive actions, and external side effects in Codex regardless of model tier.
+Use this capability ladder:
+
+| Task profile | Preferred executor | Astra responsibility |
+|---|---|---|
+| Repetitive edits, simple inspection, routine tests | DeepSeek Flash | Contract and brief review |
+| Context-heavy but bounded implementation | DeepSeek Pro | Contract and evidence review |
+| Simple Codex reasoning or small repair | Luna | Contract and brief review |
+| Medium implementation, debugging, or test design | Terra | Contract and evidence review |
+| Complex cross-module work or substantial uncertainty | Sol | Architecture, contract, and review |
+| Ambiguous architecture, security, irreversible decisions, or recovery | Astra | Direct handling and final decision |
+
+This is a direct-assignment policy, not a retry chain. Classify every independent task before execution, assign it directly to the lowest model tier that meets its difficulty, and run eligible tasks in parallel. Do not send a task to Flash first and then to Pro as the normal path. DeepSeek Flash/Pro are the direct worker models implemented by this router; Sol, Terra, and Luna are Codex-side reasoning or review tiers.
+
+Keep secrets, deployments, destructive actions, policy decisions, and external side effects in Astra regardless of model tier. Do not use a high-capability model for repetitive edits or provider setup.
 
 ## Before routing
 
-- Read applicable repository instructions, inspect Git status, and resolve architecture, product behavior, security, and data-integrity decisions in Codex. Once scope and acceptance are concrete, prefer DeepSeek for the implementation, including small, repetitive, or context-heavy repository work. Keep the work in Codex when delegation overhead exceeds the likely implementation effort or the result cannot be independently verified.
+- Read applicable repository instructions, inspect Git status, and resolve architecture, product behavior, security, and data-integrity decisions in Astra. Once scope and acceptance are concrete, prefer the lowest capable executor, including DeepSeek Flash for small or repetitive work. Keep the work in Astra when delegation overhead exceeds the likely implementation effort or the result cannot be independently verified.
 - Use this workflow only for authorized repository tasks with concrete, executable acceptance checks. Keep secrets, deployments, destructive actions, external mutations, and policy decisions out of delegated contracts.
-- Run `python <skill-dir>/scripts/run.py doctor --online` before the first live route or after provider changes. Planning, patch checks, and offline tests need only Python 3.10+ and Git. Live execution also needs the compatible official SDK/runtime, a working platform shell, a configured DeepSeek key, and a recent model capability cache. If the dedicated runtime is missing, read [runtime setup](references/runtime.md) and run the explicit installer only with the user's authorization. On Windows, `configure.py` can store the key for the current user with DPAPI; other platforms use their secure environment configuration. Never ask for a key in chat or call a paid model only to test installation.
-- Workers use the official `sdk-minimal` profile with a fresh Harness home per attempt. **This profile has full local process access. A Git worktree is not a security sandbox.** Only use trusted, non-sensitive repositories in an appropriately isolated execution environment. Scope checks are post-run checks, not access control. The worker receives a per-attempt loopback token; a host proxy holds the real provider key, forces the assigned model, and caps requests and output tokens. This protects the provider credential from ordinary worker environment inspection, but does not restrict access to other OS-visible files. If the environment is unsuitable, continue directly in Codex.
+- Run `python <skill-dir>/scripts/run.py doctor --online` before the first live route or after provider changes. Planning, patch checks, and offline tests need only Python 3.10+ and Git. Live execution also needs the local Claude Code CLI, a working platform shell, a configured DeepSeek key, and a recent model capability cache. On Windows, `configure.py` can store the key for the current user with DPAPI; other platforms use their secure environment configuration. Never ask for a key in chat or call a paid model only to test installation.
+- DeepSeek workers use the local Claude Code CLI through the Anthropic-compatible endpoint. **The CLI has full local process access. A Git worktree is not a security sandbox.** Only use trusted, non-sensitive repositories in an appropriately isolated execution environment. Scope checks are post-run checks, not access control. The worker receives a per-attempt loopback token; a host proxy holds the real provider key, forces the assigned model, and caps requests and output tokens. This protects the provider credential from ordinary worker environment inspection, but does not restrict access to other OS-visible files. If the environment is unsuitable, continue directly in Codex.
 - All routing requires a clean repository root with an existing commit. Direct worker checkouts must also contain no pre-existing ignored files; isolated dispatch creates fresh worktrees without the primary checkout's ignored local data. Preserve dirty user work; keep the task in Codex or prepare an authorized separate clean checkout without discarding changes. This deliberately tightens the supplied v0.3 sequential fallback. Symlink/submodule repositories require a different reviewed workflow.
 
 ## Plan candidates
@@ -31,9 +44,17 @@ python <skill-dir>/scripts/run.py plan --plan <candidate-plan.json> --out-dir <n
 
 Read `routing.json`, including tasks kept in Codex and scope conflicts. Contracts are written to `contracts/<id>.json`. The included [example plan](references/example-plan.json) is a schema example; adapt its paths and tests before executing.
 
-Let DeepSeek read the repository context needed to implement the contract. Codex should avoid duplicating that investigation before dispatch unless it is needed to define architecture, scope, or acceptance. Afterward, review the actual diff and host evidence rather than recreating the worker's full reasoning.
+Let the selected worker read the repository context needed to implement the contract. Astra should avoid duplicating that investigation before dispatch unless it is needed to define architecture, scope, or acceptance. Afterward, review the actual diff and host evidence rather than recreating the worker's full reasoning.
 
 ## Execute
+
+For one parent task with several Astra-assigned model workers, provide a JSON plan with a `tasks` array. Each task must contain a unique `id`, a `model` (`flash`, `pro`, `luna`, `terra`, or `sol`), and a `prompt`; DeepSeek tasks also require their reviewed contract path. Codex tasks may include no-shell `verifiers` entries with `argv` and optional `timeout_seconds`. The orchestrator creates isolated worktrees, starts eligible workers concurrently, runs Codex verifiers, exports successful Codex diffs, and writes `orchestration-result.json` with per-task status and private run directories:
+
+```text
+python <skill-dir>/scripts/run.py orchestrate --repo <clean-repo-root> --plan <orchestration-plan.json> --run-dir <new-outside-repo-dir> --max-workers 3
+```
+
+Codex workers run with the requested Codex model in an isolated managed worktree. DeepSeek workers use the Anthropic-compatible Claude Code worker and require independently isolated worktrees in their task setup. The parent receives results only; patches are never integrated automatically. Astra must review each result and apply or reject patches explicitly.
 
 Read [parallel rules](references/parallel.md) for multiple independent, non-overlapping, dependency-stable candidates:
 
@@ -51,7 +72,7 @@ python <skill-dir>/scripts/run.py route --workdir <clean-authorized-worktree> --
 
 `route.py` directly changes that worktree and preserves failed attempts for review. It does not silently roll them back. Every run directory must be new and outside the target repository. Do not run multiple router instances against the same repository; CLI entry points take a repository lock.
 
-Contracts default to `model_policy: "auto"`; users normally omit this field. Codex scores task difficulty from the six routing traits, sends straightforward bounded work (score below 9) to Flash, and sends harder or context-heavy work (score 9 or higher) directly to `deepseek-v4-pro`. The legacy `flash-first` and `pro-only` values remain only for compatibility with existing contracts. Empty changes fail by default. Read [escalation rules](references/escalation.md). Worker text is never completion evidence. Missing SDKs, credentials, incomplete turns, timeouts, permission errors, and dependency failures do not trigger escalation.
+Contracts default to `model_policy: "auto"`; users normally omit this field. Astra scores each task from the six routing traits before execution: straightforward bounded work goes directly to Flash, while harder or context-heavy work goes directly to `deepseek-v4-pro`. Eligible independent tasks are dispatched in parallel. Luna, Terra, and Sol selection happens only when a task requires their Codex reasoning tier; it is not an automatic Flash-to-Pro or Flash-to-Codex cascade. The legacy `flash-first` and `pro-only` values remain only for compatibility with existing contracts. Empty changes fail by default. Read [escalation rules](references/escalation.md). Worker text is never completion evidence. Missing SDKs, credentials, incomplete turns, timeouts, permission errors, and dependency failures do not trigger escalation.
 
 ## Review and integrate
 
@@ -64,4 +85,4 @@ python <skill-dir>/scripts/run.py integrate --workdir <primary-repo> --patch <re
 
 Supply multiple reviewed patches with repeated `--patch`. Both commands require a clean checkout at the recorded base commit and matching patch hashes. `--apply` is an explicit Codex action within the user's existing authorization, not an unconditional new confirmation request. No automatic merge or commit is performed. Run combined tests and inspect the final diff after integration; Codex owns remaining correctness and conflict resolution.
 
-Report which tasks ran, model attempts, host verification, resulting files, and unresolved limits. Distinguish local/offline tests from an actual live DeepSeek run.
+Report which tasks ran, selected model tier, model attempts, host verification, resulting files, and unresolved limits. Keep the summary concise. Distinguish local/offline tests from an actual live DeepSeek run.

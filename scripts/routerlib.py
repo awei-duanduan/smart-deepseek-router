@@ -11,6 +11,7 @@ import json
 import os
 from pathlib import Path, PurePosixPath
 import re
+import shutil
 import signal
 import subprocess
 import sys
@@ -19,7 +20,7 @@ import tempfile
 from credentials import runtime_dir
 from provider_proxy import BoundedCredentialProxy, discover_models, load_capabilities, save_capabilities, select_models
 
-VERSION = "0.9.0"
+VERSION = "0.10.0"
 TRAITS = ("bounded", "verifiable", "independent", "dependency_stable", "repetitive", "context_heavy")
 BLOCKERS = ("secrets", "deployment", "destructive", "external_side_effects", "policy_decision", "unverifiable")
 WEIGHTS = dict(bounded=3, verifiable=3, independent=2, dependency_stable=2, repetitive=1, context_heavy=1)
@@ -89,7 +90,8 @@ def command(argv, cwd, timeout=60, env=None):
     # Disk-backed output avoids unbounded RAM from a noisy child.
     with tempfile.TemporaryFile() as output:
         try:
-            proc = subprocess.Popen(argv, cwd=cwd, env=env or clean_env(), stdout=output, stderr=subprocess.STDOUT, **opts)
+            proc = subprocess.Popen(argv, cwd=cwd, env=env or clean_env(), stdin=subprocess.DEVNULL,
+                                    stdout=output, stderr=subprocess.STDOUT, **opts)
         except OSError as exc:
             return {"kind": "infrastructure", "exit_code": None, "output": redact(str(exc))}
         try:
@@ -364,25 +366,52 @@ def resolve_models(force_online=False):
 
 
 def sdk_attempt(repo, c, run_dir, model, feedback):
-    request = dict(contract=c, workdir=str(repo), model=model, home=str(run_dir / "home"), feedback=feedback)
+    worker_model = "deepseek-v4-pro[1m]" if model == "deepseek-v4-pro" else model
+    claude = shutil.which("claude")
+    require(claude, "Claude Code CLI is unavailable; install it before Anthropic-compatible routing")
+    request = dict(contract=c, workdir=str(repo), private_root=str(run_dir), model=worker_model, feedback=feedback, claude=claude)
     write_json(run_dir / "request.json", request)
     result_file = run_dir / "worker-result.json"
     key = os.environ.get("DEEPSEEK_API_KEY", "")
     require(key, "DeepSeek API key is unavailable")
     with BoundedCredentialProxy(
-        key, model, base_url=os.environ.get("DEEPSEEK_BASE_URL"),
+        key, worker_model, base_url=os.environ.get("DEEPSEEK_ANTHROPIC_BASE_URL", "https://api.deepseek.com/anthropic"), protocol="anthropic",
         max_requests=c["max_provider_requests"], max_tokens=c["max_model_output_tokens"],
         timeout=c.get("task_timeout_seconds", 600),
     ) as proxy:
         env = clean_env()
-        env["DEEPSEEK_API_KEY"] = proxy.token
-        env["DEEPSEEK_BASE_URL"] = proxy.base_url
-        r = command([sys.executable, str(Path(__file__).with_name("sdk_worker.py")), "--request", str(run_dir / "request.json"), "--result", str(result_file)], repo, timeout=c.get("task_timeout_seconds", 600) + 40, env=env)
-        proxy_info = dict(credential_proxy=True, provider_requests=proxy.request_count, provider_errors=proxy.error_count)
+        env["ANTHROPIC_API_KEY"] = proxy.token
+        env["ANTHROPIC_BASE_URL"] = proxy.base_url
+        worker = Path(__file__).with_name("anthropic_worker.py")
+        r = command([sys.executable, str(worker), "--request", str(run_dir / "request.json"), "--result", str(result_file)], repo, timeout=c.get("task_timeout_seconds", 600) + 40, env=env)
+        proxy_info = dict(
+            credential_proxy=True,
+            provider_requests=proxy.request_count,
+            proxy_received_requests=proxy.received_count,
+            provider_errors=proxy.error_count,
+            provider_error_code=proxy.error_code,
+            provider_error_kind=proxy.error_kind,
+            rate_limited=proxy.rate_limited,
+            provider_model=proxy.model_seen,
+            provider_endpoint="anthropic",
+            user_config_isolated=True,
+            proxy_rejected_requests=proxy.rejected_requests,
+            proxy_last_rejected_path=proxy.last_rejected_path,
+            proxy_last_auth_kind=proxy.last_auth_kind,
+            proxy_last_auth_length=proxy.last_auth_length,
+            proxy_expected_token_length=len(proxy.token),
+        )
     if r["kind"] != "completed" or r["exit_code"] != 0 or not result_file.exists():
-        return dict(finish_reason=r["kind"] if r["kind"] != "completed" else "infrastructure", diagnostic=r["output"], **proxy_info)
+        reason = r["kind"] if r["kind"] != "completed" else "infrastructure"
+        diagnostic = r["output"]
+        if reason == "timeout":
+            diagnostic = "Worker timed out; inspect provider_error_code/provider_error_kind and retry manually"
+        return dict(finish_reason=reason, diagnostic=diagnostic, **proxy_info)
     result = read_json(result_file)
     result.update(proxy_info)
+    if result.get("finish_reason") == "completed" and proxy.request_count == 0:
+        result["finish_reason"] = "infrastructure"
+        result["diagnostic"] = "Worker reported completion without an upstream provider request"
     return result
 
 
@@ -404,7 +433,7 @@ def export_patch(repo, head, paths, target, max_patch_bytes):
         Path(target).write_bytes(data)
 
 
-def route(repo, contract, run_dir, attempt=None):
+def route(repo, contract, run_dir, attempt=None, assigned_model=None):
     """Caller owns the lock. attempt injection is for offline unit tests only."""
     repo = resolved(repo)
     c = validate_contract(contract)
@@ -430,7 +459,11 @@ def route(repo, contract, run_dir, attempt=None):
         if policy == "auto":
             # Codex supplies the bounded task score; harder/context-heavy work goes straight to Pro.
             policy = "pro-only" if c.get("routing_score", 0) >= 9 else "flash-first"
-        sequence = (("pro", models.get("pro")),) if policy == "pro-only" else (("flash", models.get("flash")), ("pro", models.get("pro")))
+        if assigned_model:
+            require(isinstance(assigned_model, str) and assigned_model, "assigned_model must be non-empty")
+            sequence = ((assigned_model, models.get(assigned_model, assigned_model)),)
+        else:
+            sequence = (("pro", models.get("pro")),) if policy == "pro-only" else (("flash", models.get("flash")), ("pro", models.get("pro")))
         for number, (label, model) in enumerate(sequence):
             if not model:
                 result.update(status="verification_failed", reason="A supported Pro model is unavailable for the permitted escalation")

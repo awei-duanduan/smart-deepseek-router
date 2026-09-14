@@ -259,6 +259,9 @@ class RepoTest(unittest.TestCase):
 
 
 class PureTests(unittest.TestCase):
+    def test_release_version_matches_skill(self):
+        self.assertEqual(lib.VERSION, "0.10.0")
+
     def test_bounded_verifiable_context_heavy_routes_to_deepseek(self):
         t = task(contract())
         t["traits"].update(bounded=True, verifiable=True, independent=False, dependency_stable=False, repetitive=False, context_heavy=True)
@@ -355,9 +358,62 @@ class PureTests(unittest.TestCase):
         self.assertEqual(observed["model"], "deepseek-v4-pro")
         self.assertEqual(observed["max_tokens"], 99)
 
+    def test_proxy_stops_forwarding_after_upstream_rate_limit(self):
+        observed = {"calls": 0}
+        class Upstream(BaseHTTPRequestHandler):
+            def log_message(self, *args): pass
+            def do_POST(self):
+                observed["calls"] += 1
+                body = b'{"error":{"code":"RATE_LIMIT"}}'
+                self.send_response(429); self.send_header("Content-Length", str(len(body))); self.end_headers(); self.wfile.write(body)
+        server = HTTPServer(("127.0.0.1", 0), Upstream)
+        ready = threading.Event()
+        def serve():
+            ready.set()
+            server.serve_forever()
+        thread = threading.Thread(target=serve, daemon=True); thread.start()
+        self.assertTrue(ready.wait(timeout=5))
+        try:
+            with BoundedCredentialProxy("real-secret-key", "deepseek-v4-pro", base_url=f"http://127.0.0.1:{server.server_port}", max_requests=5) as proxy:
+                def call():
+                    request = urllib.request.Request(proxy.base_url + "/chat/completions", data=b'{"messages":[]}', headers={"Authorization": "Bearer " + proxy.token, "Content-Type": "application/json"})
+                    return urllib.request.urlopen(request, timeout=5)
+                for _ in range(3):
+                    with self.assertRaises(urllib.error.HTTPError) as limited:
+                        call()
+                    self.assertEqual(limited.exception.code, 429)
+                    limited.exception.close()
+        finally:
+            server.shutdown(); server.server_close(); thread.join(timeout=5)
+        self.assertEqual(observed["calls"], 1)
+
+    def test_anthropic_proxy_uses_messages_endpoint_and_x_api_key(self):
+        observed = {}
+        class Upstream(BaseHTTPRequestHandler):
+            def log_message(self, *args): pass
+            def do_POST(self):
+                observed["path"] = self.path
+                observed["key"] = self.headers.get("x-api-key")
+                observed["auth"] = self.headers.get("Authorization")
+                body = b'{"id":"msg_test"}'
+                self.send_response(200); self.send_header("Content-Length", str(len(body))); self.end_headers(); self.wfile.write(body)
+        server = HTTPServer(("127.0.0.1", 0), Upstream)
+        thread = threading.Thread(target=server.serve_forever, daemon=True); thread.start()
+        try:
+            with BoundedCredentialProxy("real-secret-key", "deepseek-v4-pro[1m]", base_url=f"http://127.0.0.1:{server.server_port}", protocol="anthropic") as proxy:
+                request = urllib.request.Request(proxy.base_url + "/v1/messages", data=b'{"messages":[]}', headers={"x-api-key": proxy.token, "Content-Type": "application/json"})
+                self.assertEqual(urllib.request.urlopen(request, timeout=5).read(), b'{"id":"msg_test"}')
+        finally:
+            server.shutdown(); server.server_close(); thread.join(timeout=5)
+        self.assertEqual(observed, {"path": "/v1/messages", "key": "real-secret-key", "auth": None})
+
     def test_process_timeout(self):
         r = lib.command([sys.executable, "-c", "import time; time.sleep(10)"], Path.cwd(), timeout=0.1)
         self.assertEqual(r["kind"], "timeout")
+
+    def test_command_closes_worker_stdin(self):
+        r = lib.command([sys.executable, "-c", "import sys; assert sys.stdin.read() == ''"], Path.cwd())
+        self.assertEqual((r["kind"], r["exit_code"]), ("completed", 0))
 
     def test_sdk_adapter_uses_real_public_field_names(self):
         record = {}

@@ -87,18 +87,33 @@ def load_capabilities(runtime_directory, max_age_seconds=86400, base_url=None):
 class BoundedCredentialProxy:
     """Forward one assigned model through a request-count/token bounded loopback endpoint."""
 
-    def __init__(self, api_key, model, *, base_url=None, max_requests=24, max_tokens=8192, timeout=360):
+    def __init__(self, api_key, model, *, base_url=None, max_requests=24, max_tokens=8192, timeout=360, protocol="openai"):
         if not api_key:
             raise ProviderError("DeepSeek credential is missing")
         self._api_key = api_key
         self.model = model
-        self.upstream = endpoint(base_url or api_base_url(), "chat/completions")
+        self.protocol = protocol
+        if protocol == "anthropic":
+            self.upstream = endpoint(base_url or (api_base_url() + "/anthropic"), "v1/messages")
+        else:
+            self.upstream = endpoint(base_url or api_base_url(), "chat/completions")
         self.max_requests = max_requests
         self.max_tokens = max_tokens
         self.timeout = timeout
-        self.token = secrets.token_urlsafe(32)
+        raw_token = secrets.token_urlsafe(32)
+        self.token = "sk-ant-api03-" + raw_token if protocol == "anthropic" else raw_token
+        self.path_token = secrets.token_urlsafe(24) if protocol == "anthropic" else None
         self.requests = 0
+        self.forwarded_requests = 0
         self.errors = 0
+        self.rate_limited = False
+        self.last_error_code = None
+        self.last_error_kind = None
+        self.observed_model = None
+        self.rejected_requests = 0
+        self.last_rejected_path = None
+        self.last_auth_kind = None
+        self.last_auth_length = None
         self._lock = threading.Lock()
         self._server = None
         self._thread = None
@@ -122,17 +137,25 @@ class BoundedCredentialProxy:
 
             def authorized(self):
                 supplied = self.headers.get("Authorization", "")
-                return hmac.compare_digest(supplied, "Bearer " + owner.token)
+                if hmac.compare_digest(supplied, "Bearer " + owner.token):
+                    return True
+                supplied_key = self.headers.get("x-api-key", "")
+                return hmac.compare_digest(supplied_key, owner.token)
 
             def do_GET(self):
-                if not self.authorized() or self.path not in ("/models", "/v1/models"):
+                allowed = (f"/{owner.path_token}/models", f"/{owner.path_token}/v1/models") if owner.protocol == "anthropic" else ("/models", "/v1/models")
+                if self.path.split("?", 1)[0] not in allowed or (owner.protocol != "anthropic" and not self.authorized()):
+                    owner.record_rejection(self)
                     self.send_bytes(403, b'{"error":"forbidden"}')
                     return
                 body = json.dumps({"object": "list", "data": [{"id": owner.model, "object": "model", "owned_by": "deepseek"}]}).encode()
                 self.send_bytes(200, body)
 
             def do_POST(self):
-                if not self.authorized() or self.path not in ("/chat/completions", "/v1/chat/completions"):
+                allowed = (f"/{owner.path_token}/messages", f"/{owner.path_token}/v1/messages") if owner.protocol == "anthropic" else ("/chat/completions", "/v1/chat/completions")
+                path_only = self.path.split("?", 1)[0]
+                if path_only not in allowed or (owner.protocol != "anthropic" and not self.authorized()):
+                    owner.record_rejection(self)
                     self.send_bytes(403, b'{"error":"forbidden"}')
                     return
                 try:
@@ -146,21 +169,32 @@ class BoundedCredentialProxy:
                     self.send_bytes(400, b'{"error":"invalid request"}')
                     return
                 with owner._lock:
+                    if owner.rate_limited:
+                        self.send_bytes(429, b'{"error":"upstream rate limit; retry later"}')
+                        return
                     if owner.requests >= owner.max_requests:
                         self.send_bytes(429, b'{"error":"router request limit reached"}')
                         return
                     owner.requests += 1
                 payload["model"] = owner.model
+                owner.observed_model = owner.model
                 requested = payload.get("max_tokens", owner.max_tokens)
                 payload["max_tokens"] = min(requested, owner.max_tokens) if isinstance(requested, int) and requested > 0 else owner.max_tokens
                 data = json.dumps(payload, ensure_ascii=False, separators=(",", ":")).encode("utf-8")
+                headers = {"Content-Type": "application/json", "Accept": self.headers.get("Accept", "application/json")}
+                if owner.protocol == "anthropic":
+                    headers.update({"x-api-key": owner._api_key, "anthropic-version": "2023-06-01"})
+                else:
+                    headers["Authorization"] = "Bearer " + owner._api_key
                 request = urllib.request.Request(
                     owner.upstream,
                     data=data,
-                    headers={"Authorization": "Bearer " + owner._api_key, "Content-Type": "application/json", "Accept": self.headers.get("Accept", "application/json")},
+                    headers=headers,
                     method="POST",
                 )
                 try:
+                    with owner._lock:
+                        owner.forwarded_requests += 1
                     with urllib.request.urlopen(request, timeout=owner.timeout) as response:
                         self.send_response(response.status)
                         self.send_header("Content-Type", response.headers.get("Content-Type", "application/json"))
@@ -175,10 +209,14 @@ class BoundedCredentialProxy:
                 except urllib.error.HTTPError as exc:
                     with owner._lock:
                         owner.errors += 1
+                        owner.last_error_code = exc.code
+                        if exc.code == 429:
+                            owner.rate_limited = True
                     self.send_bytes(exc.code, exc.read(65536), exc.headers.get("Content-Type", "application/json"))
                 except Exception:
                     with owner._lock:
                         owner.errors += 1
+                        owner.last_error_kind = "upstream_transport"
                     self.send_bytes(502, b'{"error":"provider connection failed"}')
 
         self._server = ThreadingHTTPServer(("127.0.0.1", 0), Handler)
@@ -188,15 +226,46 @@ class BoundedCredentialProxy:
 
     @property
     def base_url(self):
-        return f"http://127.0.0.1:{self._server.server_port}/v1"
+        suffix = "/" + self.path_token if self.protocol == "anthropic" else "/v1"
+        return f"http://127.0.0.1:{self._server.server_port}{suffix}"
 
     @property
     def request_count(self):
-        return self.requests
+        return self.forwarded_requests
 
     @property
     def error_count(self):
         return self.errors
+
+    @property
+    def error_code(self):
+        return self.last_error_code
+
+    @property
+    def error_kind(self):
+        return self.last_error_kind
+
+    @property
+    def received_count(self):
+        return self.requests
+
+    @property
+    def model_seen(self):
+        return self.observed_model
+
+    def record_rejection(self, handler):
+        with self._lock:
+            self.rejected_requests += 1
+            self.last_rejected_path = handler.path.split("?", 1)[0]
+            if handler.headers.get("x-api-key"):
+                self.last_auth_kind = "x-api-key"
+                self.last_auth_length = len(handler.headers.get("x-api-key", ""))
+            elif handler.headers.get("Authorization"):
+                self.last_auth_kind = "authorization"
+                self.last_auth_length = len(handler.headers.get("Authorization", ""))
+            else:
+                self.last_auth_kind = "none"
+                self.last_auth_length = 0
 
     def __exit__(self, *_args):
         if self._server:
