@@ -3,7 +3,7 @@ name: smart-deepseek-router
 description: Use when a repository task is bounded, testable, and may benefit from routing implementation work across Astra, Sol, Terra, Luna, DeepSeek Pro, or DeepSeek Flash while preserving Codex control over architecture, safety, verification, and integration.
 ---
 
-# Smart DeepSeek Router v0.10.0
+# Smart DeepSeek Router v0.11.0
 
 Use an Astra-led split: Astra defines scope and acceptance, selects the least expensive capable executor, and summarizes evidence; the selected worker performs bounded repository implementation or inspection; Astra reviews host-verified results and controls integration. The transparent routing heuristic favors low-cost execution when the task remains bounded and verifiable. See [upstream sources and compatibility](references/sources.md).
 
@@ -32,7 +32,7 @@ Keep secrets, deployments, destructive actions, policy decisions, and external s
 - Use this workflow only for authorized repository tasks with concrete, executable acceptance checks. Keep secrets, deployments, destructive actions, external mutations, and policy decisions out of delegated contracts.
 - Run `python <skill-dir>/scripts/run.py doctor --online` before the first live route or after provider changes. Planning, patch checks, and offline tests need only Python 3.10+ and Git. Live execution also needs the local Claude Code CLI, a working platform shell, a configured DeepSeek key, and a recent model capability cache. On Windows, `configure.py` can store the key for the current user with DPAPI; other platforms use their secure environment configuration. Never ask for a key in chat or call a paid model only to test installation.
 - DeepSeek workers use the local Claude Code CLI through the Anthropic-compatible endpoint. **The CLI has full local process access. A Git worktree is not a security sandbox.** Only use trusted, non-sensitive repositories in an appropriately isolated execution environment. Scope checks are post-run checks, not access control. The worker receives a per-attempt loopback token; a host proxy holds the real provider key, forces the assigned model, and caps requests and output tokens. This protects the provider credential from ordinary worker environment inspection, but does not restrict access to other OS-visible files. If the environment is unsuitable, continue directly in Codex.
-- All routing requires a clean repository root with an existing commit. Direct worker checkouts must also contain no pre-existing ignored files; isolated dispatch creates fresh worktrees without the primary checkout's ignored local data. Preserve dirty user work; keep the task in Codex or prepare an authorized separate clean checkout without discarding changes. This deliberately tightens the supplied v0.3 sequential fallback. Symlink/submodule repositories require a different reviewed workflow.
+- `orchestrate` accepts either a clean Git root with an existing commit or an ordinary source directory. For an ordinary directory it creates a filtered temporary Git mirror inside the new run directory, records `source-manifest.json`, and creates worker worktrees from that mirror. It excludes sensitive paths and common generated/dependency directories; unsafe symlinks are rejected. The original directory remains unchanged until Astra explicitly runs `integrate --apply`. Low-level `route` and `dispatch` still require clean committed Git roots. Preserve dirty user work; never stash, reset, or discard it automatically. Submodule repositories require a different reviewed workflow.
 
 ## Plan candidates
 
@@ -51,7 +51,7 @@ Let the selected worker read the repository context needed to implement the cont
 For one parent task with several Astra-assigned model workers, provide a JSON plan with a `tasks` array. Each task must contain a unique `id`, a `model` (`flash`, `pro`, `luna`, `terra`, or `sol`), and a `prompt`; DeepSeek tasks also require their reviewed contract path. Codex tasks may include no-shell `verifiers` entries with `argv` and optional `timeout_seconds`. The orchestrator creates isolated worktrees, starts eligible workers concurrently, runs Codex verifiers, exports successful Codex diffs, and writes `orchestration-result.json` with per-task status and private run directories:
 
 ```text
-python <skill-dir>/scripts/run.py orchestrate --repo <clean-repo-root> --plan <orchestration-plan.json> --run-dir <new-outside-repo-dir> --max-workers 3
+python <skill-dir>/scripts/run.py orchestrate --repo <clean-repo-root-or-ordinary-directory> --plan <orchestration-plan.json> --run-dir <new-outside-source-dir> --max-workers 3
 ```
 
 Codex workers run with the requested Codex model in an isolated managed worktree. DeepSeek workers use the Anthropic-compatible Claude Code worker and require independently isolated worktrees in their task setup. The parent receives results only; patches are never integrated automatically. Astra must review each result and apply or reject patches explicitly.
@@ -79,10 +79,10 @@ Contracts default to `model_policy: "auto"`; users normally omit this field. Ast
 Read the route result, changed code, and patch, checking correctness against the contract. A passing verifier is evidence, not automatic authorization for unrelated work. See [integration](references/integration.md).
 
 ```text
-python <skill-dir>/scripts/run.py integrate --workdir <primary-repo> --patch <reviewed-task/result.patch> --check
-python <skill-dir>/scripts/run.py integrate --workdir <primary-repo> --patch <reviewed-task/result.patch> --apply
+python <skill-dir>/scripts/run.py integrate --workdir <primary-repo-or-source-directory> --patch <reviewed-task/result.patch> --check
+python <skill-dir>/scripts/run.py integrate --workdir <primary-repo-or-source-directory> --patch <reviewed-task/result.patch> --apply
 ```
 
-Supply multiple reviewed patches with repeated `--patch`. Both commands require a clean checkout at the recorded base commit and matching patch hashes. `--apply` is an explicit Codex action within the user's existing authorization, not an unconditional new confirmation request. No automatic merge or commit is performed. Run combined tests and inspect the final diff after integration; Codex owns remaining correctness and conflict resolution.
+Supply multiple reviewed patches with repeated `--patch`. Git sources require a clean checkout at the recorded base commit. Ordinary directories require the exact recorded source snapshot; integration rebuilds a fresh candidate mirror, checks all patches there, rechecks the source for concurrent edits, and writes only validated changed files. Both modes verify patch hashes and reject overlapping file sets. `--apply` is an explicit Codex action within the user's existing authorization. No automatic merge or commit is performed. Run combined tests and inspect the final files after integration; Codex owns remaining correctness and conflict resolution.
 
 Report which tasks ran, selected model tier, model attempts, host verification, resulting files, and unresolved limits. Keep the summary concise. Distinguish local/offline tests from an actual live DeepSeek run.

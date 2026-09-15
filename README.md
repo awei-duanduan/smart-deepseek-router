@@ -7,7 +7,7 @@ Smart DeepSeek Router is a Codex Skill for bounded, testable repository work. As
 
 Smart DeepSeek Router 面向边界清晰、可以测试的仓库任务。Astra 保留架构、风险、合同、验证和最终汇总控制权，将实现切片直接交给能够胜任的最低成本模型。
 
-Current release / 当前版本：**v0.10.0**
+Current release / 当前版本：**v0.11.0**
 
 ## Architecture / 工作架构
 
@@ -157,9 +157,9 @@ eligible tasks in parallel, verify every patch, and summarize the evidence: ...
 验证每个补丁并汇总证据：……
 ```
 
-The primary checkout must be a clean Git repository with at least one commit. Every run directory must be new and outside the repository.
+`orchestrate` accepts a clean committed Git root or an ordinary directory. Ordinary directories are copied into a filtered temporary Git mirror under the run directory; the original is not modified during worker execution. Every run directory must be new and outside the source.
 
-主检出必须是至少包含一个提交的干净 Git 仓库。每次运行目录必须是新的，并位于仓库之外。
+`orchestrate` 可以接收干净且已有提交的 Git 根目录，也可以接收普通目录。普通目录会被复制为运行目录内的过滤式临时 Git 镜像；worker 执行期间不会修改原目录。每次运行目录必须是新的，并位于源目录之外。
 
 ## Parallel orchestration / 并行调度
 
@@ -208,7 +208,7 @@ Windows:
 
 ```powershell
 python scripts\run.py orchestrate `
-  --repo C:\path\to\clean-repo `
+  --repo C:\path\to\repo-or-folder `
   --plan C:\path\to\orchestration-plan.json `
   --run-dir C:\path\outside-repo\router-run-001 `
   --max-workers 3
@@ -218,7 +218,7 @@ Linux/macOS:
 
 ```bash
 python3 scripts/run.py orchestrate \
-  --repo /path/to/clean-repo \
+  --repo /path/to/repo-or-folder \
   --plan /path/to/orchestration-plan.json \
   --run-dir /path/outside-repo/router-run-001 \
   --max-workers 3
@@ -241,13 +241,13 @@ Check and apply reviewed patches explicitly:
 显式检查并应用已经审查的补丁：
 
 ```powershell
-python scripts\run.py integrate --workdir C:\path\to\clean-repo --patch C:\path\outside-repo\router-run-001\tasks\task-id\result.patch --check
-python scripts\run.py integrate --workdir C:\path\to\clean-repo --patch C:\path\outside-repo\router-run-001\tasks\task-id\result.patch --apply
+python scripts\run.py integrate --workdir C:\path\to\repo-or-folder --patch C:\path\outside-source\router-run-001\tasks\task-id\result.patch --check
+python scripts\run.py integrate --workdir C:\path\to\repo-or-folder --patch C:\path\outside-source\router-run-001\tasks\task-id\result.patch --apply
 ```
 
-`--check` validates the base commit, patch hash, and scope without modification. `--apply` applies reviewed patches without committing; Astra then inspects the combined diff and reruns tests.
+For Git sources, `--check` validates the base commit. For ordinary directories, it validates the recorded source manifest and checks patches in a fresh mirror. Both modes validate patch hashes and scope without modifying the source. `--apply` writes only reviewed files and does not commit; Astra then inspects the combined result and reruns tests.
 
-`--check` 在不修改仓库的情况下验证基础提交、补丁哈希和范围。`--apply` 应用已审查补丁但不提交；随后 Astra 检查组合差异并重新运行测试。
+对于 Git 源，`--check` 验证基础提交；对于普通目录，它验证源清单并在新镜像中检查补丁。两种模式都在不修改源目录的情况下验证补丁哈希和范围。`--apply` 只写入已审查文件且不提交；随后 Astra 检查组合结果并重新运行测试。
 
 ## Results and token accounting / 结果与 Token 统计
 

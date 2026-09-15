@@ -236,6 +236,51 @@ class RepoTest(unittest.TestCase):
         self.assertTrue(Path(r["tasks"][0]["retained_worktree"]).exists())
         self.assertTrue(r["primary_unchanged"])
 
+    def test_temporary_mirror_patch_checks_then_applies_to_plain_source(self):
+        source = self.base / "plain-source"
+        mirror = self.base / "plain-mirror"
+        source.mkdir()
+        (source / "a.txt").write_text("old\n")
+        (source / ".env").write_text("never mirrored")
+        manifest = lib.create_git_mirror(source, mirror)
+
+        def worker(repo, *args):
+            (repo / "a.txt").write_text("new\n")
+            return {"finish_reason": "completed"}
+
+        result = lib.route(mirror, contract(), self.base / "mirror-run", attempt=worker)
+        result.update(source_mode="temporary-git-mirror", source_manifest=str(self.base / "mirror-run" / "source-manifest.json"))
+        lib.write_json(self.base / "mirror-run" / "source-manifest.json", manifest)
+        lib.write_json(self.base / "mirror-run" / "route-result.json", result)
+
+        checked = integrate(source, [result["patch"]], False)
+        self.assertEqual(checked["status"], "checked")
+        self.assertEqual((source / "a.txt").read_text(), "old\n")
+        applied = integrate(source, [result["patch"]], True)
+        self.assertEqual(applied["source_mode"], "temporary-git-mirror")
+        self.assertEqual((source / "a.txt").read_text(), "new\n")
+        self.assertEqual((source / ".env").read_text(), "never mirrored")
+
+    def test_temporary_mirror_rejects_source_changed_after_dispatch(self):
+        source = self.base / "changed-source"
+        mirror = self.base / "changed-mirror"
+        source.mkdir()
+        (source / "a.txt").write_text("old\n")
+        manifest = lib.create_git_mirror(source, mirror)
+
+        def worker(repo, *args):
+            (repo / "a.txt").write_text("new\n")
+            return {"finish_reason": "completed"}
+
+        result = lib.route(mirror, contract(), self.base / "changed-run", attempt=worker)
+        result.update(source_mode="temporary-git-mirror", source_manifest=str(self.base / "changed-run" / "source-manifest.json"))
+        lib.write_json(self.base / "changed-run" / "source-manifest.json", manifest)
+        lib.write_json(self.base / "changed-run" / "route-result.json", result)
+        (source / "a.txt").write_text("user edit\n")
+        with self.assertRaises(lib.RouterError):
+            integrate(source, [result["patch"]], True)
+        self.assertEqual((source / "a.txt").read_text(), "user edit\n")
+
     def test_parallel_detects_primary_ignored_file_mutation(self):
         (self.repo / ".gitignore").write_text("cache.tmp\n")
         lib.git(self.repo, "add", ".gitignore")
@@ -260,7 +305,7 @@ class RepoTest(unittest.TestCase):
 
 class PureTests(unittest.TestCase):
     def test_release_version_matches_skill(self):
-        self.assertEqual(lib.VERSION, "0.10.0")
+        self.assertEqual(lib.VERSION, "0.11.0")
 
     def test_bounded_verifiable_context_heavy_routes_to_deepseek(self):
         t = task(contract())

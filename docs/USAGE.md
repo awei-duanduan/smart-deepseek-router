@@ -1,8 +1,8 @@
 # Smart DeepSeek Router Usage / 使用手册
 
-This manual complements [README.md](../README.md) and covers Smart DeepSeek Router v0.10.0 operations.
+This manual complements [README.md](../README.md) and covers Smart DeepSeek Router v0.11.0 operations.
 
-本手册是 [README.md](../README.md) 的操作补充，适用于 Smart DeepSeek Router v0.10.0。
+本手册是 [README.md](../README.md) 的操作补充，适用于 Smart DeepSeek Router v0.11.0。
 
 ## 1. Operating model / 运行模型
 
@@ -24,14 +24,14 @@ Assignment is direct. `flash-first` and `pro-only` remain accepted only for lega
 
 ## 2. Safety rules / 安全规则
 
-- Start from a clean repository root with an existing commit.
+- For `orchestrate`, use either a clean committed Git root or an ordinary directory. Ordinary directories are automatically mirrored into the run directory.
 - Put every new run directory outside the repository.
 - Delegate only authorized, bounded, independently verifiable work.
 - Keep secrets, deployment, destructive actions, external side effects, and policy decisions in Astra.
 - Treat worker prose as untrusted until host verification and patch review pass.
 - Worktrees isolate Git state; they are not OS sandboxes.
 
-- 从至少包含一个提交的干净仓库根目录开始。
+- `orchestrate` 可以使用干净且已有提交的 Git 根目录或普通目录；普通目录会自动镜像到运行目录。
 - 每个新运行目录都放在仓库之外。
 - 只委派已授权、边界明确且可以独立验证的工作。
 - 秘密、部署、破坏性操作、外部副作用和策略决定由 Astra 处理。
@@ -147,15 +147,15 @@ Tasks require unique IDs, explicit model aliases, reviewed contracts, resolved d
 
 ```powershell
 python scripts\run.py orchestrate `
-  --repo C:\projects\clean-repo `
+  --repo C:\projects\repo-or-folder `
   --plan C:\router-input\orchestration-plan.json `
   --run-dir C:\router-output\run-001 `
   --max-workers 3
 ```
 
-The orchestrator validates all contracts/scopes first, creates one detached worktree per task at the same base commit, runs up to five tasks concurrently, verifies results, exports patches, and sorts collected results by task ID.
+The orchestrator validates all contracts/scopes first. A non-Git source is filtered into `source-mirror` with a hashed `source-manifest.json`; sensitive/generated paths are excluded and unsafe symlinks are rejected. It then creates one detached worktree per task at the same base commit, runs up to five tasks concurrently, verifies results, exports patches, and sorts collected results by task ID.
 
-调度器先验证所有合同和范围，为每个任务基于同一基础提交创建独立分离工作树，最多并发运行五个任务，然后验证结果、导出补丁并按任务 ID 排序汇总。
+调度器先验证所有合同和范围。非 Git 源会被过滤到 `source-mirror`，同时生成带哈希的 `source-manifest.json`；敏感/生成目录会被排除，不安全符号链接会被拒绝。随后它基于同一提交为每个任务创建独立工作树，最多并发运行五个任务，然后验证结果、导出补丁并按任务 ID 排序汇总。
 
 ## 7. Direct route and dispatch / 单任务路由与分派
 
@@ -167,7 +167,7 @@ python scripts\run.py route `
   --result-out C:\router-output\task-001\route-result.json
 
 python scripts\run.py dispatch `
-  --workdir C:\projects\clean-repo `
+  --workdir C:\projects\repo-or-folder `
   --plan C:\router-input\candidate-plan.json `
   --run-dir C:\router-output\dispatch-001 `
   --max-workers 3
@@ -223,7 +223,7 @@ For DeepSeek, parse `attempts[0].worker.cli_output` as JSON and read `modelUsage
 
 ```powershell
 python scripts\run.py integrate `
-  --workdir C:\projects\clean-repo `
+  --workdir C:\projects\repo-or-folder `
   --patch C:\router-output\run-001\tasks\docs-cleanup\result.patch `
   --patch C:\router-output\run-001\tasks\parser-repair\result.patch `
   --check
@@ -235,9 +235,9 @@ python scripts\run.py integrate `
   --apply
 ```
 
-`--check` validates a clean recorded base, patch hashes, and scopes without changing files. `--apply` applies reviewed changes without committing. Inspect the combined diff and run the full repository suite afterward.
+For Git, `--check` validates the clean recorded base. For an ordinary directory it validates the source manifest, rebuilds a candidate mirror, and checks all patches there. `--apply` rechecks for concurrent source edits and writes only validated changed files. Patch hashes, scopes, and overlaps are checked in both modes.
 
-`--check` 在不修改文件的情况下验证干净且匹配的基础提交、补丁哈希和范围。`--apply` 应用已审查的变更但不提交。之后检查组合差异并运行完整测试。
+对于 Git，`--check` 验证干净且匹配的基础提交；对于普通目录，它验证源清单、重建候选镜像并在其中检查全部补丁。`--apply` 会再次检查并发编辑，只写入通过验证的变更文件。两种模式都会校验补丁哈希、范围和重叠。
 
 ## 11. Failure handling / 失败处理
 

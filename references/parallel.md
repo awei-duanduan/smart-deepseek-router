@@ -1,6 +1,6 @@
 # Isolated worktree dispatch
 
-1. Start from a clean committed root. Read repo instructions and review verifier commands first.
+1. For low-level dispatch, start from a clean committed root. For mixed-model `orchestrate`, a plain directory is also accepted and automatically converted to a filtered temporary Git mirror. Read project instructions and review verifier commands first.
 2. Provide a new run directory outside the repo, a plan, and 1–3 workers.
 3. The dispatcher compiles the plan and selects eligible non-overlapping candidates. Inspect `not_dispatched`; skipped work has not been completed.
 4. It serially creates detached worktrees at the same HEAD, then routes each selected task independently. The repository CLI lock excludes other router commands sharing its Git common directory; it does not lock editors or unrelated programs.
@@ -13,4 +13,4 @@ Git worktrees share Git metadata and are not security boundaries. The full-acces
 
 If an interrupted process leaves a lock or worktree, inspect the recorded PID, Git worktree inventory, and run outputs. Remove only confirmed stale resources created by that run; never reset or clean user files as a recovery shortcut.
 
-The `scripts/orchestrate.py` host runner applies the same parent/worker split to mixed Codex and DeepSeek tasks. Astra supplies one model assignment per task; the runner starts independent tasks concurrently and records a single parent result. It does not merge worker changes, and tasks with shared files or dependencies must be kept out of the parallel set.
+The `scripts/orchestrate.py` host runner applies the same parent/worker split to mixed Codex and DeepSeek tasks. For a plain source directory it excludes sensitive/generated paths, records file hashes in `source-manifest.json`, creates a temporary Git baseline and worktrees, and verifies that the original source remains unchanged. Astra supplies one model assignment per task; the runner starts independent tasks concurrently and records a single parent result. It does not merge worker changes, and tasks with shared files or dependencies must be kept out of the parallel set.

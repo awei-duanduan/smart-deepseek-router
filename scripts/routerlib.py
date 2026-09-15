@@ -20,7 +20,7 @@ import tempfile
 from credentials import runtime_dir
 from provider_proxy import BoundedCredentialProxy, discover_models, load_capabilities, save_capabilities, select_models
 
-VERSION = "0.10.0"
+VERSION = "0.11.0"
 TRAITS = ("bounded", "verifiable", "independent", "dependency_stable", "repetitive", "context_heavy")
 BLOCKERS = ("secrets", "deployment", "destructive", "external_side_effects", "policy_decision", "unverifiable")
 WEIGHTS = dict(bounded=3, verifiable=3, independent=2, dependency_stable=2, repetitive=1, context_heavy=1)
@@ -36,6 +36,8 @@ TASK_FIELDS = (CONTRACT_FIELDS - {"schema_version"}) | {"traits", "blockers", "d
 VERIFIER_FIELDS = {"argv", "cwd", "timeout_seconds", "implementation_failure_pattern"}
 DEFAULT_LIMITS = dict(max_provider_requests=24, max_model_output_tokens=8192, max_changed_files=200, max_changed_bytes=20 * 1024 * 1024, max_patch_bytes=40 * 1024 * 1024)
 MAX_PLAN_TASKS = 32
+MIRROR_EXCLUDED_DIRS = {".git", "__pycache__", ".venv", "venv", "node_modules", "runs", "worktrees"}
+MIRROR_EXCLUDED_FILES = {"credential.dpapi", "capabilities.json"}
 
 
 class RouterError(Exception):
@@ -122,6 +124,56 @@ def root(path):
     require(found == path, "--workdir must name the Git repository root")
     git(path, "rev-parse", "--verify", "HEAD")
     return path
+
+
+def is_git_root(path):
+    path = resolved(path)
+    result = subprocess.run(["git", "-C", str(path), "rev-parse", "--show-toplevel"],
+                            env=clean_env(), capture_output=True, timeout=60)
+    if result.returncode:
+        return False
+    try:
+        return resolved(result.stdout.decode().strip()) == path
+    except (OSError, ValueError):
+        return False
+
+
+def directory_snapshot(source, mirrorable_only=False):
+    source = resolved(source)
+    require(source.is_dir(), "Source directory does not exist")
+    files, excluded = {}, []
+    for path in sorted(source.rglob("*")):
+        rel = path.relative_to(source).as_posix()
+        parts = PurePosixPath(rel).parts
+        blocked = any(part in MIRROR_EXCLUDED_DIRS for part in parts[:-1])
+        blocked = blocked or path.name in MIRROR_EXCLUDED_FILES or bool(SENSITIVE.search(rel))
+        if path.is_symlink():
+            require(blocked, f"Symlink cannot be mirrored safely: {rel}")
+        if not path.is_file():
+            continue
+        if blocked:
+            excluded.append(rel)
+        elif not mirrorable_only or not blocked:
+            files[rel] = hash_file(path) + ":" + str(path.stat().st_mode & 0o111)
+    require(len(files) <= 10000, "Non-Git source exceeds the 10,000-file mirror limit")
+    return {"files": files, "excluded_paths": excluded}
+
+
+def create_git_mirror(source, mirror):
+    source, mirror = resolved(source), resolved(mirror)
+    manifest = directory_snapshot(source, mirrorable_only=True)
+    mirror.mkdir(parents=True, exist_ok=False)
+    for rel in manifest["files"]:
+        target = mirror / rel
+        target.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(source / rel, target)
+    git(mirror, "init", "-q")
+    git(mirror, "--literal-pathspecs", "add", "-f", "-A")
+    git(mirror, "-c", "user.name=Smart DeepSeek Router", "-c", "user.email=router@example.invalid",
+        "commit", "--allow-empty", "-qm", "temporary mirror baseline")
+    manifest.update(schema_version=1, source_root=str(source), mirror_root=str(mirror),
+                    base_commit=git(mirror, "rev-parse", "HEAD").decode().strip())
+    return manifest
 
 
 def clean(repo, reject_ignored=False):

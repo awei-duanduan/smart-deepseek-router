@@ -42,6 +42,28 @@ class OrchestrateTests(unittest.TestCase):
         self.assertEqual(result["status"], "passed")
         self.assertEqual([x["id"] for x in result["tasks"]], ["a", "b"])
 
+    def test_non_git_source_is_mirrored_and_left_unchanged(self):
+        def fake_runner(task, child_repo, run_dir):
+            self.assertEqual((child_repo / "input.txt").read_text(), "source")
+            (child_repo / task["contract"]["scope"][0]).write_text(task["id"])
+            return {"id": task["id"], "status": "passed", "model": task["model"], "run_dir": str(run_dir)}
+
+        with tempfile.TemporaryDirectory() as td:
+            base = Path(td)
+            source = base / "plain-folder"
+            source.mkdir()
+            (source / "input.txt").write_text("source")
+            (source / ".env").write_text("must-not-copy")
+            contract = {"schema_version": 2, "id": "mirror-a", "objective": "x", "scope": ["a.txt"], "acceptance": ["x"], "acceptance_verifiers": [{"argv": ["python", "-c", "pass"]}]}
+            task = {"id": "mirror-a", "model": "luna", "prompt": "x", "contract": contract}
+            result = run_parallel([task], base / "run", repo=source, runner=fake_runner, max_workers=1)
+            self.assertEqual(result["status"], "passed")
+            self.assertEqual(result["source_mode"], "temporary-git-mirror")
+            self.assertTrue(result["source_unchanged"])
+            self.assertFalse((source / "a.txt").exists())
+            self.assertFalse((base / "run/source-mirror/.env").exists())
+            subprocess.run(["git", "-C", str(base / "run/source-mirror"), "rev-parse", "HEAD"], check=True, capture_output=True)
+
 
 if __name__ == "__main__":
     unittest.main()

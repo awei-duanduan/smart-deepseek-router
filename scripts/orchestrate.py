@@ -88,14 +88,25 @@ def run_parallel(tasks, run_dir, repo=None, max_workers=3, runner=None):
     for i, left in enumerate(contracts):
         for right in contracts[i + 1:]:
             lib.require(not any(lib.overlap(a, b) for a in left["scope"] for b in right["scope"]), "Overlapping task scopes")
-    repo = lib.root(repo)
-    run_dir = lib.outside(repo, run_dir)
+    source = lib.resolved(repo)
+    lib.require(source.is_dir(), "Source directory does not exist")
+    run_dir = lib.outside(source, run_dir)
+    source_mode = "git" if lib.is_git_root(source) else "temporary-git-mirror"
+    source_before = lib.snapshot(source, include_ignored=True) if source_mode == "git" else lib.directory_snapshot(source)
+    if source_mode == "git":
+        repo = lib.root(source)
+    else:
+        run_dir.mkdir(parents=True, exist_ok=False)
+        repo = run_dir / "source-mirror"
+        manifest = lib.create_git_mirror(source, repo)
+        lib.write_json(run_dir / "source-manifest.json", manifest)
     with lib.lock(repo):
         lib.clean(repo)
         before = lib.snapshot(repo, include_ignored=True)
         lib.require(not any(lib.SENSITIVE.search(p) for p in before), "Sensitive repository input")
         head = lib.git(repo, "rev-parse", "HEAD")
-        run_dir.mkdir(parents=True, exist_ok=False)
+        if source_mode == "git":
+            run_dir.mkdir(parents=True, exist_ok=False)
         worktree_root = run_dir / "worktrees"
         worktrees, results = {}, []
         try:
@@ -114,10 +125,24 @@ def run_parallel(tasks, run_dir, repo=None, max_workers=3, runner=None):
                         results.append({"id": task["id"], "model": task["model"], "status": "blocked",
                                         "reason": lib.redact(str(exc))})
             untouched = lib.snapshot(repo, include_ignored=True) == before and lib.git(repo, "rev-parse", "HEAD") == head and not lib.git(repo, "status", "--porcelain=v1", "--untracked-files=all")
-            status = "passed" if untouched and all(r["status"] == "passed" for r in results) else "needs_review"
+            source_after = lib.snapshot(source, include_ignored=True) if source_mode == "git" else lib.directory_snapshot(source)
+            source_unchanged = source_after == source_before
+            if source_mode != "git":
+                for result in results:
+                    route_result = Path(result.get("run_dir", "")) / "route-result.json"
+                    if result.get("status") == "passed" and route_result.is_file():
+                        task_manifest = Path(result["run_dir"]) / "source-manifest.json"
+                        lib.write_json(task_manifest, manifest)
+                        persisted = lib.read_json(route_result)
+                        persisted.update(source_mode=source_mode, source_manifest=str(task_manifest))
+                        lib.write_json(route_result, persisted)
+                        result.update(source_mode=source_mode, source_manifest=str(task_manifest))
+            status = "passed" if untouched and source_unchanged and all(r["status"] == "passed" for r in results) else "needs_review"
             summary = {"status": status, "parallel": True, "primary_unchanged": bool(untouched),
                        "tasks": sorted(results, key=lambda r: r["id"]), "run_dir": str(run_dir),
-                       "worktrees": {k: str(v) for k, v in worktrees.items()}}
+                       "worktrees": {k: str(v) for k, v in worktrees.items()},
+                       "source_mode": source_mode, "source_unchanged": bool(source_unchanged),
+                       "mirror_repo": str(repo) if source_mode != "git" else None}
             lib.write_json(run_dir / "orchestration-result.json", summary)
             return summary
         except Exception:
